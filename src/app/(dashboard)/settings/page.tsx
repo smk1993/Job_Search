@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import { TopNav } from "@/components/layout/TopNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,16 +25,37 @@ import {
   User,
   Sparkles,
   CheckCircle2,
+  Linkedin,
 } from "lucide-react";
 import { COUNTRIES } from "@/lib/utils";
 import type { ExtractedProfile } from "@/app/api/settings/resume/route";
 
 const WORK_AUTH_OPTIONS = [
-  { value: "CITIZEN", label: "US Citizen", description: "Full work authorization, no restrictions" },
-  { value: "PERMANENT_RESIDENT", label: "Permanent Resident (Green Card)", description: "Permanent work authorization" },
-  { value: "WORK_VISA", label: "Work Visa (H1B, L1, etc.)", description: "May require sponsorship for new employers" },
-  { value: "STUDENT_VISA", label: "Student Visa (F1/OPT/CPT)", description: "Limited work authorization" },
-  { value: "NO_AUTHORIZATION", label: "No US Work Authorization", description: "Jobs requiring US work auth will be filtered" },
+  {
+    value: "CITIZEN",
+    label: "Citizen / National",
+    description: "Full work authorization in my country — no restrictions",
+  },
+  {
+    value: "PERMANENT_RESIDENT",
+    label: "Permanent Resident",
+    description: "Permanent residency — can work without sponsorship",
+  },
+  {
+    value: "WORK_VISA",
+    label: "Work Visa Holder",
+    description: "Authorized to work via a valid work visa",
+  },
+  {
+    value: "STUDENT_VISA",
+    label: "Student Visa (with work authorization)",
+    description: "On a student visa with limited work rights (e.g., F1 OPT, Tier 4)",
+  },
+  {
+    value: "NO_AUTHORIZATION",
+    label: "Need Employer Sponsorship",
+    description: "Require an employer to sponsor my work authorization",
+  },
 ];
 
 const FIELD_LABELS: Record<keyof ExtractedProfile, string> = {
@@ -46,8 +68,16 @@ const FIELD_LABELS: Record<keyof ExtractedProfile, string> = {
   summary: "Professional Summary",
 };
 
+const LINKEDIN_ERRORS: Record<string, string> = {
+  linkedin_denied: "LinkedIn connection was cancelled.",
+  linkedin_state_mismatch: "Security check failed. Please try connecting again.",
+  linkedin_failed: "Failed to connect LinkedIn. Please try again.",
+  linkedin_not_configured: "LinkedIn integration is not yet configured.",
+};
+
 export default function SettingsPage() {
   const { data: session, update } = useSession();
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingResume, setIsUploadingResume] = useState(false);
@@ -61,6 +91,7 @@ export default function SettingsPage() {
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   const [phone, setPhone] = useState("");
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
   // Resume state
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
@@ -70,8 +101,11 @@ export default function SettingsPage() {
   const [extractedProfile, setExtractedProfile] = useState<ExtractedProfile | null>(null);
   const [appliedFromCV, setAppliedFromCV] = useState(false);
 
-  useEffect(() => {
-    axios.get("/api/settings").then((res) => {
+  // LinkedIn connection state
+  const [linkedinConnected, setLinkedinConnected] = useState(false);
+
+  const fetchSettings = () => {
+    return axios.get("/api/settings").then((res) => {
       const u = res.data.user;
       if (u) {
         setName(u.name ?? "");
@@ -82,9 +116,38 @@ export default function SettingsPage() {
         setGithubUrl(u.githubUrl ?? "");
         setPhone(u.phone ?? "");
         setResumeUrl(u.resumeUrl ?? null);
+        setProfileImage(u.image ?? null);
       }
-    }).catch(() => {}).finally(() => setIsLoading(false));
+    });
+  };
+
+  useEffect(() => {
+    fetchSettings().catch(() => {}).finally(() => setIsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Handle LinkedIn OAuth redirect results
+  useEffect(() => {
+    const linkedinStatus = searchParams.get("linkedin");
+    const errorKey = searchParams.get("error");
+    const imported = searchParams.get("imported");
+
+    if (linkedinStatus === "connected") {
+      setLinkedinConnected(true);
+      const importedFields = imported ? imported.split(",") : [];
+      const msg = importedFields.length
+        ? `LinkedIn connected! Imported: ${importedFields.join(", ")}.`
+        : "LinkedIn connected successfully.";
+      toast.success(msg);
+      // Refresh settings data to get the new profile image
+      fetchSettings().catch(() => {});
+      // Refresh session so the nav avatar updates
+      update({});
+    } else if (errorKey && LINKEDIN_ERRORS[errorKey]) {
+      toast.error(LINKEDIN_ERRORS[errorKey]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,14 +178,14 @@ export default function SettingsPage() {
       setResumeUrl(res.data.resumeUrl);
       setResumeOriginalName(res.data.originalName ?? file.name);
 
-      // Show extracted profile if any field was found
       const extracted: ExtractedProfile = res.data.extractedProfile;
       const hasAnyField = extracted && Object.values(extracted).some((v) => v !== null);
       if (hasAnyField) {
         setExtractedProfile(extracted);
+        toast.success("CV uploaded — we found some details you can apply to your profile.");
+      } else {
+        toast.success("Resume uploaded!");
       }
-
-      toast.success("Resume uploaded!");
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err) ? err.response?.data?.error : null;
       toast.error(msg ?? "Failed to upload resume");
@@ -134,13 +197,13 @@ export default function SettingsPage() {
 
   const handleApplyFromCV = () => {
     if (!extractedProfile) return;
-    if (extractedProfile.name)       setName(extractedProfile.name);
-    if (extractedProfile.phone)      setPhone(extractedProfile.phone);
+    if (extractedProfile.name)        setName(extractedProfile.name);
+    if (extractedProfile.phone)       setPhone(extractedProfile.phone);
     if (extractedProfile.linkedinUrl) setLinkedinUrl(extractedProfile.linkedinUrl);
-    if (extractedProfile.githubUrl)  setGithubUrl(extractedProfile.githubUrl);
-    if (extractedProfile.summary)    setBio(extractedProfile.summary);
+    if (extractedProfile.githubUrl)   setGithubUrl(extractedProfile.githubUrl);
+    if (extractedProfile.summary)     setBio(extractedProfile.summary);
     setAppliedFromCV(true);
-    toast.success("Profile fields filled from your CV — click Save to keep them.");
+    toast.success("Fields filled from your CV — click Save Profile to keep them.");
   };
 
   const handleRemoveResume = async () => {
@@ -160,17 +223,16 @@ export default function SettingsPage() {
   };
 
   const resumeExt = resumeUrl?.split(".").pop()?.toUpperCase() ?? "PDF";
-
-  const isNonUSUser = country !== "US";
   const selectedAuth = WORK_AUTH_OPTIONS.find((o) => o.value === workAuthType);
-  const willFilterJobs =
-    isNonUSUser &&
-    (workAuthType === "NO_AUTHORIZATION" || workAuthType === "WORK_VISA" || workAuthType === "STUDENT_VISA");
+  const needsSponsorship = workAuthType === "NO_AUTHORIZATION" || workAuthType === "WORK_VISA" || workAuthType === "STUDENT_VISA";
 
-  // Fields found in CV that are non-null
+  // Fields found in CV
   const cvFields = extractedProfile
     ? (Object.entries(extractedProfile) as [keyof ExtractedProfile, string | null][]).filter(([, v]) => v !== null)
     : [];
+
+  // Displayed avatar: LinkedIn photo from DB > session image > initials
+  const avatarSrc = profileImage ?? session?.user?.image;
 
   return (
     <div>
@@ -189,15 +251,16 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* ── Resume Card (above form so extraction banner appears near top) ── */}
+
+            {/* ── Resume Card ─────────────────────────────────────────── */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  Resume
+                  Resume / CV
                 </CardTitle>
                 <CardDescription>
-                  Upload your resume (PDF, DOCX — max 5MB). We&apos;ll auto-fill your profile details from it.
+                  Upload your CV (PDF or DOCX, max 5MB). We&apos;ll automatically read your details and fill in your profile.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -211,7 +274,7 @@ export default function SettingsPage() {
                         <p className="text-sm font-medium">
                           {resumeOriginalName ?? `Resume.${resumeExt.toLowerCase()}`}
                         </p>
-                        <p className="text-xs text-muted-foreground">{resumeExt} file · Uploaded</p>
+                        <p className="text-xs text-muted-foreground">{resumeExt} · Uploaded</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -221,22 +284,11 @@ export default function SettingsPage() {
                           Download
                         </a>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isUploadingResume}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploadingResume}>
                         <Upload className="h-3.5 w-3.5 mr-1" />
                         Replace
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleRemoveResume}
-                        disabled={isUploadingResume}
-                        className="text-destructive hover:text-destructive"
-                      >
+                      <Button variant="ghost" size="sm" onClick={handleRemoveResume} disabled={isUploadingResume} className="text-destructive hover:text-destructive">
                         <X className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -246,80 +298,52 @@ export default function SettingsPage() {
                     {isUploadingResume ? (
                       <div className="flex flex-col items-center gap-2">
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Uploading &amp; reading your CV…</p>
+                        <p className="text-sm text-muted-foreground">Reading your CV…</p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-2">
                         <Upload className="h-6 w-6 text-muted-foreground" />
-                        <p className="text-sm font-medium">Click to upload your resume</p>
-                        <p className="text-xs text-muted-foreground">PDF or DOCX up to 5MB</p>
+                        <p className="text-sm font-medium">Click to upload your CV</p>
+                        <p className="text-xs text-muted-foreground">PDF or DOCX up to 5MB — we&apos;ll auto-fill your profile</p>
                       </div>
                     )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.doc,.docx"
-                      onChange={handleResumeUpload}
-                      disabled={isUploadingResume}
-                    />
+                    <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} disabled={isUploadingResume} />
                   </label>
                 )}
 
                 {/* Hidden input for Replace flow */}
                 {resumeUrl && (
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept=".pdf,.doc,.docx"
-                    onChange={handleResumeUpload}
-                    disabled={isUploadingResume}
-                  />
+                  <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} disabled={isUploadingResume} />
                 )}
 
                 {isUploadingResume && resumeUrl && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Uploading &amp; reading your CV…
+                    Reading your CV…
                   </div>
                 )}
 
-                {/* ── CV Extraction Banner ───────────────────────────────── */}
+                {/* CV Extraction Banner */}
                 {cvFields.length > 0 && !appliedFromCV && (
                   <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
-                        <p className="text-sm font-medium text-violet-900">
-                          We found these details in your CV
-                        </p>
+                        <p className="text-sm font-medium text-violet-900">Details found in your CV</p>
                       </div>
-                      <button
-                        onClick={() => setExtractedProfile(null)}
-                        className="text-violet-400 hover:text-violet-600 transition-colors"
-                        aria-label="Dismiss"
-                      >
+                      <button onClick={() => setExtractedProfile(null)} className="text-violet-400 hover:text-violet-600 transition-colors" aria-label="Dismiss">
                         <X className="h-4 w-4" />
                       </button>
                     </div>
-
                     <dl className="grid grid-cols-1 gap-1.5">
                       {cvFields.map(([key, value]) => (
                         <div key={key} className="flex gap-2 text-sm">
-                          <dt className="text-violet-600 font-medium whitespace-nowrap min-w-[120px]">
-                            {FIELD_LABELS[key]}:
-                          </dt>
+                          <dt className="text-violet-600 font-medium whitespace-nowrap min-w-[130px]">{FIELD_LABELS[key]}:</dt>
                           <dd className="text-violet-800 truncate">{value}</dd>
                         </div>
                       ))}
                     </dl>
-
-                    <Button
-                      size="sm"
-                      onClick={handleApplyFromCV}
-                      className="bg-violet-600 hover:bg-violet-700 text-white"
-                    >
+                    <Button size="sm" onClick={handleApplyFromCV} className="bg-violet-600 hover:bg-violet-700 text-white">
                       <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
                       Apply to Profile
                     </Button>
@@ -329,14 +353,52 @@ export default function SettingsPage() {
                 {appliedFromCV && (
                   <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
                     <CheckCircle2 className="h-4 w-4 shrink-0" />
-                    Profile fields filled from CV — review below and click Save.
+                    Profile filled from CV — review the fields below and click Save.
                   </div>
                 )}
               </CardContent>
             </Card>
 
+            {/* ── LinkedIn Card ────────────────────────────────────────── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Linkedin className="h-4 w-4 text-[#0A66C2]" />
+                  LinkedIn
+                </CardTitle>
+                <CardDescription>
+                  Connect your LinkedIn account to import your profile photo and name. Your LinkedIn URL can be entered manually below.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {linkedinConnected ? (
+                  <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    LinkedIn connected — profile photo updated.
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Imports: profile photo, display name</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-[#0A66C2] text-[#0A66C2] hover:bg-[#0A66C2]/5"
+                      onClick={() => { window.location.href = "/api/auth/linkedin"; }}
+                    >
+                      <Linkedin className="h-4 w-4" />
+                      Connect LinkedIn
+                    </Button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  Note: LinkedIn&apos;s public API does not expose project details or full profile summaries to third-party apps.
+                  Add these manually in the profile form below.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* ── Profile Form ─────────────────────────────────────────── */}
             <form onSubmit={handleSave} className="space-y-6">
-              {/* Profile Information */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
@@ -346,23 +408,25 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-4">
-                    <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                      {session?.user?.image ? (
+                    <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      {avatarSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={session.user.image} alt="Avatar" className="h-16 w-16 rounded-full object-cover" />
+                        <img src={avatarSrc} alt="Avatar" className="h-16 w-16 rounded-full object-cover" />
                       ) : (
                         <User className="h-8 w-8 text-muted-foreground" />
                       )}
                     </div>
                     <div>
                       <p className="text-sm font-medium">{session?.user?.email}</p>
-                      <p className="text-xs text-muted-foreground">Logged in via Google or email</p>
+                      <p className="text-xs text-muted-foreground">
+                        {avatarSrc ? "Profile photo from LinkedIn" : "Connect LinkedIn to add a profile photo"}
+                      </p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label>Full Name</Label>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" />
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" />
                   </div>
 
                   <div className="space-y-2">
@@ -386,7 +450,7 @@ export default function SettingsPage() {
                     <Textarea
                       value={bio}
                       onChange={(e) => setBio(e.target.value)}
-                      placeholder="Brief professional summary used for AI cover letter generation…"
+                      placeholder="Brief professional summary — used by the AI when generating cover letters…"
                       className="min-h-[100px] resize-none"
                       maxLength={500}
                     />
@@ -395,7 +459,7 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
 
-              {/* Work Authorization */}
+              {/* ── Work Authorization ───────────────────────────────── */}
               <Card className="border-2 border-primary/20">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
@@ -403,14 +467,14 @@ export default function SettingsPage() {
                     Work Authorization
                   </CardTitle>
                   <CardDescription>
-                    Controls which jobs are shown to you. Jobs requiring US authorization will be filtered if you cannot work there.
+                    Set your work authorization status. Jobs that explicitly require independent authorization (no sponsorship) can be filtered out.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1">
                       <Globe className="h-3.5 w-3.5" />
-                      Your Country
+                      Country / Region
                     </Label>
                     <Select value={country} onValueChange={setCountry}>
                       <SelectTrigger>
@@ -425,7 +489,7 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>US Work Authorization Status</Label>
+                    <Label>Work Authorization Status</Label>
                     <Select value={workAuthType} onValueChange={setWorkAuthType}>
                       <SelectTrigger>
                         <SelectValue />
@@ -441,38 +505,33 @@ export default function SettingsPage() {
                     )}
                   </div>
 
-                  <div className={`rounded-md p-3 flex items-start gap-3 ${willFilterJobs ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"}`}>
-                    {willFilterJobs ? (
+                  <div className={`rounded-md p-3 flex items-start gap-3 ${needsSponsorship ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"}`}>
+                    {needsSponsorship ? (
                       <ShieldX className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
                     ) : (
                       <ShieldCheck className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
                     )}
-                    <div className="text-sm">
-                      {willFilterJobs ? (
-                        <p className="text-orange-800">
-                          <strong>Jobs requiring US work authorization will be filtered out.</strong>{" "}
+                    <p className="text-sm">
+                      {needsSponsorship ? (
+                        <span className="text-orange-800">
+                          <strong>Jobs requiring independent work authorization will be filtered.</strong>{" "}
                           You can toggle this filter per-search on the Jobs page.
-                        </p>
-                      ) : country === "US" ? (
-                        <p className="text-green-800">You&apos;re in the US — all jobs are shown by default.</p>
+                        </span>
                       ) : (
-                        <p className="text-green-800">
-                          Based on your work authorization status, you can work in the US. All jobs will be shown.
-                        </p>
+                        <span className="text-green-800">
+                          You can work without sponsorship — all jobs will be shown by default.
+                        </span>
                       )}
-                    </div>
+                    </p>
                   </div>
                 </CardContent>
               </Card>
 
               <Button type="submit" disabled={isSaving} className="w-full">
-                {isSaving ? (
-                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving…</>
-                ) : (
-                  "Save Profile"
-                )}
+                {isSaving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving…</> : "Save Profile"}
               </Button>
             </form>
+
           </div>
         )}
       </div>

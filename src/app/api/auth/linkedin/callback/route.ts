@@ -1,0 +1,110 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+interface LinkedInUserInfo {
+  sub: string;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+  email?: string;
+}
+
+export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  const userId = (session.user as { id?: string }).id!;
+
+  const { searchParams } = req.nextUrl;
+  const code = searchParams.get("code");
+  const state = searchParams.get("state");
+  const error = searchParams.get("error");
+
+  // User denied access
+  if (error || !code) {
+    return NextResponse.redirect(new URL("/settings?error=linkedin_denied", req.url));
+  }
+
+  // Verify CSRF state
+  const storedState = req.cookies.get("linkedin_oauth_state")?.value;
+  if (!storedState || storedState !== state) {
+    return NextResponse.redirect(new URL("/settings?error=linkedin_state_mismatch", req.url));
+  }
+
+  try {
+    const redirectUri = `${process.env.NEXTAUTH_URL}/api/auth/linkedin/callback`;
+
+    // Exchange auth code for access token
+    const tokenRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        client_id: process.env.LINKEDIN_CLIENT_ID!,
+        client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+        redirect_uri: redirectUri,
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      throw new Error(`Token exchange failed: ${tokenRes.status}`);
+    }
+
+    const tokenData = await tokenRes.json() as { access_token: string };
+
+    // Fetch LinkedIn profile via OpenID Connect userinfo endpoint
+    const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+
+    if (!profileRes.ok) {
+      throw new Error(`Profile fetch failed: ${profileRes.status}`);
+    }
+
+    const profile = await profileRes.json() as LinkedInUserInfo;
+
+    // Determine what to update
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, image: true },
+    });
+
+    const updateData: Record<string, string | null> = {};
+
+    // Always update profile photo from LinkedIn
+    if (profile.picture) {
+      updateData.image = profile.picture;
+    }
+
+    // Only update name if user hasn't set one
+    if (profile.name && !currentUser?.name) {
+      updateData.name = profile.name;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await prisma.user.update({ where: { id: userId }, data: updateData });
+    }
+
+    // Build success redirect with imported field names for the UI banner
+    const imported: string[] = [];
+    if (updateData.image) imported.push("photo");
+    if (updateData.name) imported.push("name");
+
+    const successUrl = new URL("/settings", req.url);
+    successUrl.searchParams.set("linkedin", "connected");
+    if (imported.length) successUrl.searchParams.set("imported", imported.join(","));
+
+    const response = NextResponse.redirect(successUrl.toString());
+    // Clear the state cookie
+    response.cookies.delete("linkedin_oauth_state");
+    return response;
+  } catch (err) {
+    console.error("LinkedIn OAuth error:", err);
+    return NextResponse.redirect(new URL("/settings?error=linkedin_failed", req.url));
+  }
+}

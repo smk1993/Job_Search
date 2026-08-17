@@ -52,15 +52,17 @@ export function canUserApplyToJob(
   userWorkAuth: WorkAuthorizationType | null
 ): { canApply: boolean; reason: string | null } {
   if (!requiresUsAuth) return { canApply: true, reason: null };
+  // If user is based in the US, they can apply regardless
   if (!userCountry || userCountry === "US") return { canApply: true, reason: null };
+  // Citizens and permanent residents can work without sponsorship
   if (userWorkAuth && CAN_WORK_IN_US.has(userWorkAuth)) return { canApply: true, reason: null };
   return {
     canApply: false,
     reason:
       userWorkAuth === WorkAuthorizationType.WORK_VISA ||
       userWorkAuth === WorkAuthorizationType.STUDENT_VISA
-        ? "This job does not offer visa sponsorship. Your current status likely requires sponsorship."
-        : "This job requires US work authorization. Update your work auth settings in your profile.",
+        ? "This job does not offer sponsorship. Your current authorization may require employer sponsorship."
+        : "This job requires independent work authorization. Update your authorization status in Settings.",
   };
 }
 

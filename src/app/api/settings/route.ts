@@ -13,6 +13,7 @@ export async function GET() {
     select: {
       name: true,
       email: true,
+      image: true,
       bio: true,
       country: true,
       workAuthType: true,
