@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
 import { TopNav } from "@/components/layout/TopNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,9 +74,9 @@ const LINKEDIN_ERRORS: Record<string, string> = {
   linkedin_not_configured: "LinkedIn integration is not yet configured.",
 };
 
+
 export default function SettingsPage() {
   const { data: session, update } = useSession();
-  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingResume, setIsUploadingResume] = useState(false);
@@ -103,6 +102,7 @@ export default function SettingsPage() {
 
   // LinkedIn connection state
   const [linkedinConnected, setLinkedinConnected] = useState(false);
+  const [isLinkedinConnecting, setIsLinkedinConnecting] = useState(false);
 
   const fetchSettings = () => {
     return axios.get("/api/settings").then((res) => {
@@ -126,28 +126,62 @@ export default function SettingsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Handle LinkedIn OAuth redirect results
-  useEffect(() => {
-    const linkedinStatus = searchParams.get("linkedin");
-    const errorKey = searchParams.get("error");
-    const imported = searchParams.get("imported");
+  // Handle postMessage from the LinkedIn OAuth popup
+  const handleLinkedInMessage = useCallback((event: MessageEvent) => {
+    if (event.origin !== window.location.origin) return;
 
-    if (linkedinStatus === "connected") {
+    if (event.data?.type === "LINKEDIN_CONNECTED") {
+      setIsLinkedinConnecting(false);
       setLinkedinConnected(true);
-      const importedFields = imported ? imported.split(",") : [];
+      const importedFields: string[] = event.data.imported
+        ? (event.data.imported as string).split(",").filter(Boolean)
+        : [];
       const msg = importedFields.length
         ? `LinkedIn connected! Imported: ${importedFields.join(", ")}.`
         : "LinkedIn connected successfully.";
       toast.success(msg);
-      // Refresh settings data to get the new profile image
       fetchSettings().catch(() => {});
-      // Refresh session so the nav avatar updates
       update({});
-    } else if (errorKey && LINKEDIN_ERRORS[errorKey]) {
-      toast.error(LINKEDIN_ERRORS[errorKey]);
+    } else if (event.data?.type === "LINKEDIN_ERROR") {
+      setIsLinkedinConnecting(false);
+      const errKey = event.data.error as string;
+      toast.error(LINKEDIN_ERRORS[errKey] ?? "LinkedIn connection failed.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("message", handleLinkedInMessage);
+    return () => window.removeEventListener("message", handleLinkedInMessage);
+  }, [handleLinkedInMessage]);
+
+  const handleConnectLinkedIn = () => {
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+
+    const popup = window.open(
+      "/api/auth/linkedin",
+      "linkedin_oauth",
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+    );
+
+    if (!popup) {
+      toast.error("Popup was blocked. Please allow popups for this site and try again.");
+      return;
+    }
+
+    setIsLinkedinConnecting(true);
+
+    // Detect if user closes the popup without completing OAuth
+    const pollClosed = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(pollClosed);
+        setIsLinkedinConnecting(false);
+      }
+    }, 500);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -383,10 +417,15 @@ export default function SettingsPage() {
                       variant="outline"
                       size="sm"
                       className="gap-2 border-[#0A66C2] text-[#0A66C2] hover:bg-[#0A66C2]/5"
-                      onClick={() => { window.location.href = "/api/auth/linkedin"; }}
+                      onClick={handleConnectLinkedIn}
+                      disabled={isLinkedinConnecting}
                     >
-                      <Linkedin className="h-4 w-4" />
-                      Connect LinkedIn
+                      {isLinkedinConnecting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Linkedin className="h-4 w-4" />
+                      )}
+                      {isLinkedinConnecting ? "Connecting…" : "Connect LinkedIn"}
                     </Button>
                   </div>
                 )}

@@ -24,15 +24,19 @@ export async function GET(req: NextRequest) {
   const state = searchParams.get("state");
   const error = searchParams.get("error");
 
+  const doneBase = new URL("/oauth/linkedin/done", req.url);
+
   // User denied access
   if (error || !code) {
-    return NextResponse.redirect(new URL("/settings?error=linkedin_denied", req.url));
+    doneBase.searchParams.set("error", "linkedin_denied");
+    return NextResponse.redirect(doneBase.toString());
   }
 
   // Verify CSRF state
   const storedState = req.cookies.get("linkedin_oauth_state")?.value;
   if (!storedState || storedState !== state) {
-    return NextResponse.redirect(new URL("/settings?error=linkedin_state_mismatch", req.url));
+    doneBase.searchParams.set("error", "linkedin_state_mismatch");
+    return NextResponse.redirect(doneBase.toString());
   }
 
   try {
@@ -90,21 +94,21 @@ export async function GET(req: NextRequest) {
       await prisma.user.update({ where: { id: userId }, data: updateData });
     }
 
-    // Build success redirect with imported field names for the UI banner
+    // Redirect the popup to the done page with what was imported
     const imported: string[] = [];
     if (updateData.image) imported.push("photo");
     if (updateData.name) imported.push("name");
 
-    const successUrl = new URL("/settings", req.url);
-    successUrl.searchParams.set("linkedin", "connected");
-    if (imported.length) successUrl.searchParams.set("imported", imported.join(","));
+    const doneUrl = new URL("/oauth/linkedin/done", req.url);
+    if (imported.length) doneUrl.searchParams.set("imported", imported.join(","));
 
-    const response = NextResponse.redirect(successUrl.toString());
-    // Clear the state cookie
+    const response = NextResponse.redirect(doneUrl.toString());
     response.cookies.delete("linkedin_oauth_state");
     return response;
   } catch (err) {
     console.error("LinkedIn OAuth error:", err);
-    return NextResponse.redirect(new URL("/settings?error=linkedin_failed", req.url));
+    const doneUrl = new URL("/oauth/linkedin/done", req.url);
+    doneUrl.searchParams.set("error", "linkedin_failed");
+    return NextResponse.redirect(doneUrl.toString());
   }
 }
