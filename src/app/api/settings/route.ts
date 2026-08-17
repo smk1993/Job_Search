@@ -19,6 +19,7 @@ export async function GET() {
       linkedinUrl: true,
       githubUrl: true,
       phone: true,
+      resumeUrl: true,
     },
   });
 

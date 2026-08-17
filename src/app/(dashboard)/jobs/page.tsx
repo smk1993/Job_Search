@@ -7,11 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { JobCard } from "@/components/jobs/JobCard";
+import { RedditJobCard } from "@/components/jobs/RedditJobCard";
+import { AIQueryInterpretation } from "@/components/jobs/AIQueryInterpretation";
+import { SearchSummaryBar } from "@/components/jobs/SearchSummaryBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useJobs } from "@/hooks/useJobs";
-import { Search, BriefcaseIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { useDebounce } from "@/hooks/useDebounce";
+import { Search, BriefcaseIcon, ChevronLeft, ChevronRight, Flame } from "lucide-react";
 import type { JobWithAuthStatus } from "@/types/job";
 
 export default function JobsPage() {
@@ -19,27 +25,63 @@ export default function JobsPage() {
   const [workMode, setWorkMode] = useState("all");
   const [jobType, setJobType] = useState("all");
   const [applyWorkAuthFilter, setApplyWorkAuthFilter] = useState(true);
+  const [includeHN, setIncludeHN] = useState(false);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, isFetching } = useJobs({ q: query, workMode, jobType, page, applyWorkAuthFilter });
-  const jobs: JobWithAuthStatus[] = data?.jobs ?? [];
+  // 300ms debounce — fast enough to feel responsive while avoiding excess API calls
+  const debouncedQuery = useDebounce(query, 300);
+
+  const { data, isLoading, isFetching } = useJobs({
+    q: debouncedQuery,
+    workMode,
+    jobType,
+    page,
+    applyWorkAuthFilter,
+    includeHN,
+  });
+
+  const allJobs: JobWithAuthStatus[] = data?.jobs ?? [];
+  const gridJobs = allJobs.filter((j) => !j.isRedditPost);
+  const hnJobs = allJobs.filter((j) => j.isRedditPost);
+
+  const interpretation: string | null = data?.interpretation ?? null;
+  const confidence: number = data?.confidence ?? 0;
+  const freeSourceCount: number = data?.freeSourceCount ?? 0;
+
+  const isSearching = query !== debouncedQuery || isFetching;
+
+  // Build per-platform counts for the summary bar
+  const platformCounts = gridJobs.reduce<Record<string, number>>((acc, job) => {
+    const p = job.sourcePlatform ?? "OTHER";
+    acc[p] = (acc[p] ?? 0) + 1;
+    return acc;
+  }, {});
+  const sourceCounts = Object.entries(platformCounts).map(([platform, count]) => ({ platform, count }));
 
   return (
     <div>
       <TopNav title="Search Jobs" />
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-4">
         {/* Search Bar */}
-        <div className="flex gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Search jobs... e.g. React engineer, Python developer, remote product manager"
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-            />
-          </div>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search jobs… e.g. React engineer, Python developer, remote product manager"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+          />
+          {isSearching && debouncedQuery && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
         </div>
+
+        {/* AI Interpretation */}
+        {interpretation && debouncedQuery && (
+          <AIQueryInterpretation interpretation={interpretation} confidence={confidence} />
+        )}
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-4 pb-4 border-b">
@@ -73,34 +115,51 @@ export default function JobsPage() {
             </Select>
           </div>
 
+          {/* HN toggle */}
+          <div className="flex items-center gap-2">
+            <Switch
+              id="include-hn"
+              checked={includeHN}
+              onCheckedChange={(v) => { setIncludeHN(v); setPage(1); }}
+            />
+            <Label htmlFor="include-hn" className="text-sm cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
+              <Flame className="h-3.5 w-3.5 text-orange-500" />
+              Include HN Jobs
+            </Label>
+          </div>
+
           <div className="flex items-center gap-2 ml-auto">
             <Switch
               id="work-auth-filter"
               checked={applyWorkAuthFilter}
               onCheckedChange={setApplyWorkAuthFilter}
             />
-            <Label htmlFor="work-auth-filter" className="text-sm cursor-pointer">
+            <Label htmlFor="work-auth-filter" className="text-sm cursor-pointer whitespace-nowrap">
               Hide jobs I can&apos;t work
             </Label>
           </div>
         </div>
 
         {/* Results */}
-        {!query.trim() ? (
+        {!debouncedQuery.trim() ? (
           <EmptyState
             icon={Search}
             title="Search for your next opportunity"
-            description="Enter a job title, skill, or company name to search across LinkedIn, Indeed, Glassdoor, and more."
+            description="Enter a job title, skill, or company name to search across LinkedIn, Indeed, Glassdoor, Remotive, RemoteOK, Arbeitnow, and more."
           />
         ) : isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {Array.from({ length: 9 }).map((_, i) => <Skeleton key={i} className="h-72" />)}
           </div>
-        ) : jobs.length === 0 ? (
+        ) : allJobs.length === 0 ? (
           <EmptyState
             icon={BriefcaseIcon}
             title="No jobs found"
-            description={applyWorkAuthFilter ? "Try disabling the work authorization filter to see more results." : "Try different keywords or filters."}
+            description={
+              applyWorkAuthFilter
+                ? "Try disabling the work authorization filter to see more results."
+                : "Try different keywords or filters."
+            }
             action={
               applyWorkAuthFilter ? (
                 <Button variant="outline" onClick={() => setApplyWorkAuthFilter(false)}>
@@ -110,28 +169,81 @@ export default function JobsPage() {
             }
           />
         ) : (
-          <>
-            <p className="text-sm text-muted-foreground">
-              {isFetching ? "Refreshing..." : `${jobs.length} jobs found`}
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {jobs.map((job) => (
-                <JobCard key={job.id} job={job} />
-              ))}
-            </div>
-            {/* Pagination */}
-            <div className="flex items-center justify-center gap-3 pt-4">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                <ChevronLeft className="h-4 w-4" />
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground">Page {page}</span>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={jobs.length < 10}>
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </>
+          <div className="space-y-8">
+            {/* ── Main grid results ────────────────────────────────────── */}
+            {gridJobs.length > 0 && (
+              <div className="space-y-4">
+                {/* Summary bar with source breakdown */}
+                <SearchSummaryBar
+                  totalCount={gridJobs.length}
+                  sourceCounts={sourceCounts}
+                  isFetching={isFetching}
+                  query={debouncedQuery}
+                />
+                {freeSourceCount > 0 && !isFetching && (
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    Includes {freeSourceCount} results from Remotive, RemoteOK &amp; Arbeitnow
+                  </p>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {gridJobs.map((job) => (
+                    <JobCard key={job.id} job={job} />
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground">Page {page}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={gridJobs.length < 10}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* ── HN jobs section ───────────────────────────────────────── */}
+            {includeHN && hnJobs.length > 0 && (
+              <div className="space-y-4">
+                <Separator />
+                <div className="flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-orange-500" />
+                  <h3 className="text-sm font-semibold">From Hacker News</h3>
+                  <Badge variant="secondary" className="bg-orange-100 text-orange-800 text-xs">
+                    {hnJobs.length} posts
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">· Keyword-matched from &quot;Ask HN: Who is Hiring?&quot;</span>
+                </div>
+                <div className="space-y-3">
+                  {hnJobs.map((job) => (
+                    <RedditJobCard key={job.id} job={job} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* HN enabled but no matches */}
+            {includeHN && hnJobs.length === 0 && gridJobs.length > 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">
+                No Hacker News posts matched &quot;{debouncedQuery}&quot;
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

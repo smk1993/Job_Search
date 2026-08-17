@@ -24,41 +24,102 @@ export interface RedditJobPost {
   sourcePlatform: "REDDIT";
 }
 
-interface RedditPost {
-  id: string;
-  title: string;
-  selftext: string;
-  permalink: string;
-  author: { name: string } | string;
-  created_utc: number;
+interface HNItem {
+  id: number;
+  by?: string;
+  title?: string;
+  text?: string;
+  kids?: number[];
+  time?: number;
+  parent?: number;
+  deleted?: boolean;
+  dead?: boolean;
 }
 
-function extractCompany(title: string): string | null {
-  const match = title.match(/\bat\s+([^|(\[,]+?)(?:\s*[-|(\[]|$)/i);
-  return match?.[1]?.trim() ?? null;
+const HN_API = "https://hacker-news.firebaseio.com/v0";
+const HN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+let hnJobsCache: { jobs: RedditJobPost[]; expiresAt: number } | null = null;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<p>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&nbsp;/g, " ")
+    .trim();
 }
 
-function parsePost(post: RedditPost, subredditName: string): RedditJobPost | null {
-  const selftext = post.selftext || "";
-  if (selftext.length < 30 && post.title.length < 50) return null;
-  const fullText = `${post.title}\n${selftext}`;
-  const { requiresUsAuth, matchedKeywords } = detectUsAuthRequired(fullText);
-  const emails = fullText.match(EMAIL_REGEX);
-  const linkedins = fullText.match(LINKEDIN_REGEX);
-  const salaries = fullText.match(SALARY_REGEX);
-  const locationMatch = fullText.match(LOCATION_REGEX);
-  const authorName = typeof post.author === "string" ? post.author : post.author?.name ?? null;
+async function fetchHNItem(id: number): Promise<HNItem | null> {
+  try {
+    const res = await fetch(`${HN_API}/item/${id}.json`);
+    return await res.json() as HNItem;
+  } catch {
+    return null;
+  }
+}
+
+// Get latest "Who is hiring?" and "Who wants to be hired?" thread IDs
+// from the official whoishiring HN account
+async function getLatestThreads(): Promise<Map<string, HNItem>> {
+  const res = await fetch(`${HN_API}/user/whoishiring.json`);
+  const user = await res.json() as { submitted: number[] };
+  const submissions = user.submitted.slice(0, 10);
+
+  // Fetch in parallel
+  const items = await Promise.all(submissions.map(fetchHNItem));
+
+  const threads = new Map<string, HNItem>();
+  for (const item of items) {
+    if (!item?.title) continue;
+    if (item.title.includes("Who is hiring?") && !threads.has("who-is-hiring")) {
+      threads.set("who-is-hiring", item);
+    }
+    if (item.title.includes("Who wants to be hired?") && !threads.has("who-wants-to-be-hired")) {
+      threads.set("who-wants-to-be-hired", item);
+    }
+    if (threads.size === 2) break;
+  }
+  return threads;
+}
+
+function parseHNItem(item: HNItem, threadLabel: string): RedditJobPost | null {
+  if (!item.text || item.deleted || item.dead) return null;
+  const text = stripHtml(item.text);
+  if (text.length < 30) return null;
+
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const firstLine = lines[0] ?? "";
+
+  // HN job posts use "|" to separate: Company | Role | Location | ...
+  const parts = firstLine.split("|").map((p) => p.trim());
+  const company = parts.length > 1 ? parts[0] : null;
+  const role = parts.length > 1 ? parts[1] : firstLine.slice(0, 120);
+  const locationFromParts = parts.length > 2 ? parts[2] : null;
+  const locationMatch = text.match(LOCATION_REGEX);
+  const location = locationFromParts ?? locationMatch?.[1]?.trim() ?? null;
+
+  const salaries = text.match(SALARY_REGEX);
+  const emails = text.match(EMAIL_REGEX);
+  const linkedins = text.match(LINKEDIN_REGEX);
+  const { requiresUsAuth, matchedKeywords } = detectUsAuthRequired(text);
+
   return {
-    redditPostId: post.id,
-    title: post.title,
-    company: extractCompany(post.title),
-    location: locationMatch?.[1]?.trim() ?? null,
+    redditPostId: `hn_${item.id}`,
+    title: role || firstLine.slice(0, 120),
+    company,
+    location,
     salary: salaries?.[0] ?? null,
-    description: selftext || post.title,
-    sourceUrl: `https://reddit.com${post.permalink}`,
-    postedAt: new Date(post.created_utc * 1000),
-    authorUsername: authorName !== "[deleted]" ? authorName : null,
-    subreddit: subredditName,
+    description: text,
+    sourceUrl: `https://news.ycombinator.com/item?id=${item.id}`,
+    postedAt: new Date((item.time ?? 0) * 1000),
+    authorUsername: item.by ?? null,
+    subreddit: threadLabel,
     requiresUsAuth,
     workAuthKeywords: matchedKeywords,
     contactEmail: emails?.[0] ?? null,
@@ -68,80 +129,22 @@ function parsePost(post: RedditPost, subredditName: string): RedditJobPost | nul
   };
 }
 
-async function getRedditToken(): Promise<string> {
-  const clientId = process.env.REDDIT_CLIENT_ID!;
-  const clientSecret = process.env.REDDIT_CLIENT_SECRET!;
-  const username = process.env.REDDIT_USERNAME!;
-  const password = process.env.REDDIT_PASSWORD!;
-
-  const res = await fetch("https://www.reddit.com/api/v1/access_token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": "JobSearchSaaS/1.0",
-    },
-    body: new URLSearchParams({ grant_type: "password", username, password }),
-  });
-  const data = await res.json() as { access_token: string };
-  return data.access_token;
-}
-
-async function fetchPosts(subreddit: string, sort: "new" | "hot", limit: number): Promise<RedditPost[]> {
-  const token = await getRedditToken();
-  const res = await fetch(
-    `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${limit}&raw_json=1`,
-    { headers: { Authorization: `Bearer ${token}`, "User-Agent": "JobSearchSaaS/1.0" } }
-  );
-  const data = await res.json() as { data: { children: Array<{ data: RedditPost }> } };
-  return data.data.children.map((c) => c.data);
-}
-
-async function searchPosts(subreddit: string, query: string, limit: number): Promise<RedditPost[]> {
-  const token = await getRedditToken();
-  const res = await fetch(
-    `https://oauth.reddit.com/r/${subreddit}/search?q=${encodeURIComponent(query)}&restrict_sr=1&sort=new&limit=${limit}&raw_json=1`,
-    { headers: { Authorization: `Bearer ${token}`, "User-Agent": "JobSearchSaaS/1.0" } }
-  );
-  const data = await res.json() as { data: { children: Array<{ data: RedditPost }> } };
-  return data.data.children.map((c) => c.data);
-}
-
-const SUBREDDIT_CONFIGS = [
-  { name: "forhire", strategy: "new" as const, query: "", filter: (t: string) => t.toLowerCase().includes("[hiring]") },
-  { name: "remotejobs", strategy: "new" as const, query: "", filter: () => true },
-  { name: "jobpostings", strategy: "new" as const, query: "", filter: () => true },
-  { name: "webdev", strategy: "search" as const, query: "hiring", filter: (t: string) => t.toLowerCase().includes("hiring") },
-];
-
-export async function scrapeRedditJobs({
-  subreddit: specificSubreddit,
-  limit = 25,
-}: {
-  subreddit?: string;
-  limit?: number;
-}): Promise<RedditJobPost[]> {
-  const configs = specificSubreddit
-    ? SUBREDDIT_CONFIGS.filter((c) => c.name === specificSubreddit)
-    : SUBREDDIT_CONFIGS;
-
+async function fetchAllHNJobs(limit = 30): Promise<RedditJobPost[]> {
+  const allThreads = await getLatestThreads();
   const allJobs: RedditJobPost[] = [];
 
-  for (const config of configs) {
+  for (const [label, thread] of Array.from(allThreads.entries())) {
+    if (!thread?.kids) continue;
     try {
-      let posts: RedditPost[];
-      if (config.strategy === "search") {
-        posts = await searchPosts(config.name, config.query, limit);
-      } else {
-        posts = await fetchPosts(config.name, "new", limit);
-      }
-      const filtered = posts.filter((p) => config.filter(p.title));
-      for (const post of filtered) {
-        const parsed = parsePost(post, config.name);
+      const commentIds = thread.kids.slice(0, limit);
+      const comments = await Promise.all(commentIds.map(fetchHNItem));
+      for (const comment of comments) {
+        if (!comment) continue;
+        const parsed = parseHNItem(comment, label);
         if (parsed) allJobs.push(parsed);
       }
     } catch (err) {
-      console.error(`Failed to scrape r/${config.name}:`, err);
+      console.error(`Failed to fetch HN comments for ${label}:`, err);
     }
   }
 
@@ -151,4 +154,23 @@ export async function scrapeRedditJobs({
     seen.add(j.redditPostId);
     return true;
   });
+}
+
+export async function scrapeRedditJobs({
+  subreddit: threadFilter,
+  limit = 30,
+}: {
+  subreddit?: string;
+  limit?: number;
+}): Promise<RedditJobPost[]> {
+  // Return from cache if fresh
+  if (!hnJobsCache || Date.now() >= hnJobsCache.expiresAt) {
+    const jobs = await fetchAllHNJobs(limit);
+    hnJobsCache = { jobs, expiresAt: Date.now() + HN_CACHE_TTL };
+  }
+
+  if (threadFilter) {
+    return hnJobsCache.jobs.filter((j) => j.subreddit === threadFilter);
+  }
+  return hnJobsCache.jobs;
 }

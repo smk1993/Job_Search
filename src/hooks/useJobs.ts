@@ -9,6 +9,7 @@ interface JobSearchParams {
   jobType: string;
   page: number;
   applyWorkAuthFilter: boolean;
+  includeHN: boolean;
 }
 
 export function useJobs(params: JobSearchParams) {
@@ -23,11 +24,14 @@ export function useJobs(params: JobSearchParams) {
             jobType: params.jobType,
             page: params.page,
             applyWorkAuthFilter: params.applyWorkAuthFilter,
+            includeHN: params.includeHN,
           },
         })
         .then((r) => r.data),
     enabled: !!params.q.trim(),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000, // 10 min — matches server cache TTL
+    gcTime: 30 * 60 * 1000,    // keep in memory for 30 min
+    placeholderData: (prev) => prev, // show previous results while refetching
   });
 }
 

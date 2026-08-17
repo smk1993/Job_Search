@@ -9,6 +9,11 @@ const client = axios.create({
   },
 });
 
+// Server-side in-memory cache — avoids hitting the paid API on repeated queries
+const searchCache = new Map<string, { jobs: JSearchJob[]; expiresAt: number }>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const MAX_CACHE_ENTRIES = 200;
+
 function mapWorkMode(job: Record<string, unknown>): "REMOTE" | "HYBRID" | "ONSITE" {
   if (job.job_is_remote) return "REMOTE";
   const desc = String(job.job_description || "").toLowerCase();
@@ -61,6 +66,12 @@ export async function searchJSearchJobs({
   page?: number;
   workMode?: string;
 }): Promise<JSearchJob[]> {
+  const cacheKey = `${query.toLowerCase().trim()}:${page}:${workMode}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.jobs;
+  }
+
   let apiQuery = query;
   if (workMode === "REMOTE") apiQuery += " remote";
   if (workMode === "HYBRID") apiQuery += " hybrid";
@@ -77,7 +88,7 @@ export async function searchJSearchJobs({
 
   const data: Record<string, unknown>[] = response.data.data ?? [];
 
-  return data.map((job) => {
+  const result = data.map((job) => {
     const description = String(job.job_description ?? "");
     const { requiresUsAuth, matchedKeywords } = detectUsAuthRequired(description);
     const city = job.job_city
@@ -111,4 +122,12 @@ export async function searchJSearchJobs({
       isRedditPost: false,
     };
   });
+
+  // Store in cache, evict oldest entry if cap exceeded
+  if (searchCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = Array.from(searchCache.keys())[0];
+    if (oldestKey) searchCache.delete(oldestKey);
+  }
+  searchCache.set(cacheKey, { jobs: result, expiresAt: Date.now() + CACHE_TTL });
+  return result;
 }

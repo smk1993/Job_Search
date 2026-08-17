@@ -49,6 +49,10 @@ export function getPlatformColor(platform: string | null): string {
     case "GLASSDOOR": return "bg-emerald-100 text-emerald-800";
     case "ZIPRECRUITER": return "bg-orange-100 text-orange-800";
     case "REDDIT": return "bg-red-100 text-red-800";
+    case "HACKERNEWS": return "bg-orange-100 text-orange-800";
+    case "REMOTIVE": return "bg-teal-100 text-teal-800";
+    case "REMOTEOK": return "bg-sky-100 text-sky-800";
+    case "ARBEITNOW": return "bg-indigo-100 text-indigo-800";
     default: return "bg-gray-100 text-gray-600";
   }
 }

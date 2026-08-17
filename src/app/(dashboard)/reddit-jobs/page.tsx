@@ -13,12 +13,10 @@ import { useRedditJobs } from "@/hooks/useJobs";
 import { MessageSquare, RefreshCw } from "lucide-react";
 import type { JobWithAuthStatus } from "@/types/job";
 
-const SUBREDDITS = [
+const HN_THREADS = [
   { value: undefined, label: "All" },
-  { value: "forhire", label: "r/forhire" },
-  { value: "remotejobs", label: "r/remotejobs" },
-  { value: "jobpostings", label: "r/jobpostings" },
-  { value: "webdev", label: "r/webdev" },
+  { value: "who-is-hiring", label: "Who's Hiring" },
+  { value: "who-wants-to-be-hired", label: "Who Wants to be Hired" },
 ];
 
 export default function RedditJobsPage() {
@@ -30,13 +28,13 @@ export default function RedditJobsPage() {
 
   return (
     <div>
-      <TopNav title="Reddit Jobs" />
+      <TopNav title="Hacker News Jobs" />
       <div className="p-6 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold">Jobs from Reddit</h2>
+            <h2 className="text-lg font-semibold">Jobs from Hacker News</h2>
             <p className="text-sm text-muted-foreground">
-              Scraped from r/forhire, r/remotejobs, r/jobpostings, and more. DM the poster directly.
+              From monthly &quot;Ask HN: Who is Hiring?&quot; threads. Reply directly on HN.
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -55,9 +53,9 @@ export default function RedditJobsPage() {
 
         <Tabs value={subreddit ?? "all"} onValueChange={(v) => setSubreddit(v === "all" ? undefined : v)}>
           <TabsList>
-            {SUBREDDITS.map((sub) => (
-              <TabsTrigger key={sub.value ?? "all"} value={sub.value ?? "all"}>
-                {sub.label}
+            {HN_THREADS.map((thread) => (
+              <TabsTrigger key={thread.value ?? "all"} value={thread.value ?? "all"}>
+                {thread.label}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -70,7 +68,7 @@ export default function RedditJobsPage() {
         ) : jobs.length === 0 ? (
           <EmptyState
             icon={MessageSquare}
-            title="No Reddit jobs found"
+            title="No Hacker News jobs found"
             description={
               applyWorkAuthFilter
                 ? "No eligible jobs found. Try disabling the work authorization filter."

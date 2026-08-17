@@ -34,7 +34,7 @@ export function RedditJobCard({ job }: RedditJobCardProps) {
                   variant="secondary"
                   className="text-xs bg-orange-100 text-orange-800"
                 >
-                  r/{job.subreddit}
+                  {job.subreddit}
                 </Badge>
               )}
               {job.company && (
@@ -114,13 +114,13 @@ export function RedditJobCard({ job }: RedditJobCardProps) {
             )}
             {job.authorUsername && (
               <a
-                href={`https://reddit.com/message/compose/?to=${job.authorUsername}`}
+                href={`https://news.ycombinator.com/user?id=${job.authorUsername}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-orange-600 hover:underline flex items-center gap-1"
               >
                 <MessageSquare className="h-3 w-3" />
-                DM
+                HN Profile
               </a>
             )}
           </div>

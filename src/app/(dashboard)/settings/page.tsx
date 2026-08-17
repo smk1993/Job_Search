@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { TopNav } from "@/components/layout/TopNav";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,20 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import axios from "axios";
-import { Loader2, Shield, ShieldCheck, ShieldX, Globe } from "lucide-react";
+import {
+  Loader2,
+  Shield,
+  ShieldCheck,
+  ShieldX,
+  Globe,
+  FileText,
+  Upload,
+  Download,
+  X,
+  User,
+} from "lucide-react";
 import { COUNTRIES } from "@/lib/utils";
 
 const WORK_AUTH_OPTIONS = [
@@ -28,6 +37,8 @@ export default function SettingsPage() {
   const { data: session, update } = useSession();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
@@ -36,6 +47,8 @@ export default function SettingsPage() {
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   const [phone, setPhone] = useState("");
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [resumeOriginalName, setResumeOriginalName] = useState<string | null>(null);
 
   useEffect(() => {
     axios.get("/api/settings").then((res) => {
@@ -48,6 +61,7 @@ export default function SettingsPage() {
         setLinkedinUrl(u.linkedinUrl ?? "");
         setGithubUrl(u.githubUrl ?? "");
         setPhone(u.phone ?? "");
+        setResumeUrl(u.resumeUrl ?? null);
       }
     }).catch(() => {}).finally(() => setIsLoading(false));
   }, []);
@@ -66,6 +80,44 @@ export default function SettingsPage() {
     }
   };
 
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingResume(true);
+    try {
+      const formData = new FormData();
+      formData.append("resume", file);
+      const res = await axios.post("/api/settings/resume", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setResumeUrl(res.data.resumeUrl);
+      setResumeOriginalName(res.data.originalName ?? file.name);
+      toast.success("Resume uploaded successfully!");
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.error : null;
+      toast.error(msg ?? "Failed to upload resume");
+    } finally {
+      setIsUploadingResume(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveResume = async () => {
+    setIsUploadingResume(true);
+    try {
+      await axios.delete("/api/settings/resume");
+      setResumeUrl(null);
+      setResumeOriginalName(null);
+      toast.success("Resume removed");
+    } catch {
+      toast.error("Failed to remove resume");
+    } finally {
+      setIsUploadingResume(false);
+    }
+  };
+
+  const resumeExt = resumeUrl?.split(".").pop()?.toUpperCase() ?? "PDF";
+
   const isNonUSUser = country !== "US";
   const selectedAuth = WORK_AUTH_OPTIONS.find((o) => o.value === workAuthType);
   const willFilterJobs =
@@ -78,133 +130,254 @@ export default function SettingsPage() {
       <div className="p-6 max-w-2xl space-y-6">
         <div>
           <h2 className="text-lg font-semibold">Profile Settings</h2>
-          <p className="text-sm text-muted-foreground">Manage your account and work authorization preferences</p>
+          <p className="text-sm text-muted-foreground">Manage your account, resume, and work authorization preferences</p>
         </div>
 
         {isLoading ? (
           <div className="space-y-4">
-            {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-md animate-pulse" />)}
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-16 bg-muted rounded-md animate-pulse" />
+            ))}
           </div>
         ) : (
-          <form onSubmit={handleSave} className="space-y-6">
-            {/* Profile */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Profile Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Full Name</Label>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Bio</Label>
-                  <Textarea
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value)}
-                    placeholder="Brief professional summary used for cover letter generation..."
-                    className="min-h-[80px] resize-none"
-                    maxLength={500}
-                  />
-                  <p className="text-xs text-muted-foreground">{bio.length}/500 — Used by AI when generating cover letters</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>LinkedIn URL</Label>
-                    <Input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/..." />
+          <div className="space-y-6">
+            <form onSubmit={handleSave} className="space-y-6">
+              {/* Profile Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Profile Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                      {session?.user?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={session.user.image} alt="Avatar" className="h-16 w-16 rounded-full object-cover" />
+                      ) : (
+                        <User className="h-8 w-8 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{session?.user?.email}</p>
+                      <p className="text-xs text-muted-foreground">Logged in via Google or email</p>
+                    </div>
                   </div>
+
                   <div className="space-y-2">
-                    <Label>GitHub URL</Label>
-                    <Input value={githubUrl} onChange={(e) => setGithubUrl(e.target.value)} placeholder="https://github.com/..." />
+                    <Label>Full Name</Label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 000 0000" type="tel" />
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Work Authorization */}
-            <Card className="border-2 border-primary/20">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-primary" />
-                  Work Authorization
-                </CardTitle>
-                <CardDescription>
-                  This controls which jobs are shown to you. Jobs requiring US authorization will be filtered if you cannot work there.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-1">
-                    <Globe className="h-3.5 w-3.5" />
-                    Your Country
-                  </Label>
-                  <Select value={country} onValueChange={setCountry}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COUNTRIES.map((c) => (
-                        <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <div className="space-y-2">
+                    <Label>Phone</Label>
+                    <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 000 0000" type="tel" />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label>US Work Authorization Status</Label>
-                  <Select value={workAuthType} onValueChange={setWorkAuthType}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {WORK_AUTH_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>
-                          <div>
-                            <p>{o.label}</p>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedAuth && (
-                    <p className="text-xs text-muted-foreground">{selectedAuth.description}</p>
-                  )}
-                </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>LinkedIn URL</Label>
+                      <Input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>GitHub URL</Label>
+                      <Input value={githubUrl} onChange={(e) => setGithubUrl(e.target.value)} placeholder="https://github.com/..." />
+                    </div>
+                  </div>
 
-                {/* Live preview */}
-                <div className={`rounded-md p-3 flex items-start gap-3 ${willFilterJobs ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"}`}>
-                  {willFilterJobs ? (
-                    <ShieldX className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <ShieldCheck className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-                  )}
-                  <div className="text-sm">
-                    {willFilterJobs ? (
-                      <p className="text-orange-800">
-                        <strong>Jobs requiring US work authorization will be filtered out.</strong>{" "}
-                        This protects you from seeing jobs you&apos;re not eligible for.
-                        You can toggle this filter per-search on the Jobs page.
-                      </p>
-                    ) : country === "US" ? (
-                      <p className="text-green-800">You&apos;re in the US — all jobs are shown by default.</p>
-                    ) : (
-                      <p className="text-green-800">
-                        Based on your work authorization status, you can work in the US. Jobs requiring US work auth will be shown.
-                      </p>
+                  <div className="space-y-2">
+                    <Label>Professional Bio</Label>
+                    <Textarea
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      placeholder="Brief professional summary used for AI cover letter generation..."
+                      className="min-h-[100px] resize-none"
+                      maxLength={500}
+                    />
+                    <p className="text-xs text-muted-foreground">{bio.length}/500 — Used by AI when generating cover letters</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Work Authorization */}
+              <Card className="border-2 border-primary/20">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-primary" />
+                    Work Authorization
+                  </CardTitle>
+                  <CardDescription>
+                    Controls which jobs are shown to you. Jobs requiring US authorization will be filtered if you cannot work there.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1">
+                      <Globe className="h-3.5 w-3.5" />
+                      Your Country
+                    </Label>
+                    <Select value={country} onValueChange={setCountry}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COUNTRIES.map((c) => (
+                          <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>US Work Authorization Status</Label>
+                    <Select value={workAuthType} onValueChange={setWorkAuthType}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WORK_AUTH_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedAuth && (
+                      <p className="text-xs text-muted-foreground">{selectedAuth.description}</p>
                     )}
                   </div>
-                </div>
+
+                  <div className={`rounded-md p-3 flex items-start gap-3 ${willFilterJobs ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"}`}>
+                    {willFilterJobs ? (
+                      <ShieldX className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <ShieldCheck className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="text-sm">
+                      {willFilterJobs ? (
+                        <p className="text-orange-800">
+                          <strong>Jobs requiring US work authorization will be filtered out.</strong>{" "}
+                          You can toggle this filter per-search on the Jobs page.
+                        </p>
+                      ) : country === "US" ? (
+                        <p className="text-green-800">You&apos;re in the US — all jobs are shown by default.</p>
+                      ) : (
+                        <p className="text-green-800">
+                          Based on your work authorization status, you can work in the US. All jobs will be shown.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Button type="submit" disabled={isSaving} className="w-full">
+                {isSaving ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving...</>
+                ) : (
+                  "Save Profile"
+                )}
+              </Button>
+            </form>
+
+            {/* Resume — separate from the main form so submit doesn't trigger it */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Resume
+                </CardTitle>
+                <CardDescription>
+                  Upload your resume (PDF, DOC, DOCX — max 5MB). Used as context for AI cover letter generation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {resumeUrl ? (
+                  <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/40">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">
+                          {resumeOriginalName ?? `Resume.${resumeExt.toLowerCase()}`}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{resumeExt} file · Uploaded</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={resumeUrl} target="_blank" rel="noopener noreferrer" download>
+                          <Download className="h-3.5 w-3.5 mr-1" />
+                          Download
+                        </a>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploadingResume}
+                      >
+                        <Upload className="h-3.5 w-3.5 mr-1" />
+                        Replace
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveResume}
+                        disabled={isUploadingResume}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                    {isUploadingResume ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Uploading...</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="h-6 w-6 text-muted-foreground" />
+                        <p className="text-sm font-medium">Click to upload your resume</p>
+                        <p className="text-xs text-muted-foreground">PDF, DOC, DOCX up to 5MB</p>
+                      </div>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.doc,.docx"
+                      onChange={handleResumeUpload}
+                      disabled={isUploadingResume}
+                    />
+                  </label>
+                )}
+
+                {/* Hidden input for replace flow when resume already exists */}
+                {resumeUrl && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleResumeUpload}
+                    disabled={isUploadingResume}
+                  />
+                )}
+
+                {isUploadingResume && resumeUrl && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Uploading...
+                  </div>
+                )}
               </CardContent>
             </Card>
-
-            <Button type="submit" disabled={isSaving} className="w-full">
-              {isSaving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving...</> : "Save Settings"}
-            </Button>
-          </form>
+          </div>
         )}
       </div>
     </div>
