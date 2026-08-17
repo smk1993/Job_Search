@@ -9,7 +9,8 @@ export async function GET(req: NextRequest) {
   }
 
   if (!process.env.LINKEDIN_CLIENT_ID) {
-    return NextResponse.redirect(new URL("/settings?error=linkedin_not_configured", req.url));
+    // Redirect popup to the done page so it can send postMessage back to parent
+    return NextResponse.redirect(new URL("/oauth/linkedin/done?error=linkedin_not_configured", req.url));
   }
 
   const state = randomBytes(16).toString("hex");

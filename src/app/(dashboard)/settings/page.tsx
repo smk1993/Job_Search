@@ -103,6 +103,7 @@ export default function SettingsPage() {
   // LinkedIn connection state
   const [linkedinConnected, setLinkedinConnected] = useState(false);
   const [isLinkedinConnecting, setIsLinkedinConnecting] = useState(false);
+  const [linkedinConfigured, setLinkedinConfigured] = useState<boolean | null>(null); // null = loading
 
   const fetchSettings = () => {
     return axios.get("/api/settings").then((res) => {
@@ -122,7 +123,10 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
-    fetchSettings().catch(() => {}).finally(() => setIsLoading(false));
+    Promise.all([
+      fetchSettings(),
+      axios.get("/api/auth/linkedin/status").then((r) => setLinkedinConfigured(r.data.configured)).catch(() => setLinkedinConfigured(false)),
+    ]).catch(() => {}).finally(() => setIsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -401,16 +405,49 @@ export default function SettingsPage() {
                   LinkedIn
                 </CardTitle>
                 <CardDescription>
-                  Connect your LinkedIn account to import your profile photo and name. Your LinkedIn URL can be entered manually below.
+                  Connect your LinkedIn account to import your profile photo and display name automatically.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
                 {linkedinConnected ? (
                   <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
                     <CheckCircle2 className="h-4 w-4 shrink-0" />
                     LinkedIn connected — profile photo updated.
                   </div>
+                ) : linkedinConfigured === false ? (
+                  /* ── Not configured: show setup instructions ── */
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+                    <p className="text-sm font-medium text-amber-900">Setup required</p>
+                    <p className="text-sm text-amber-800">
+                      To enable LinkedIn sign-in, create a LinkedIn app and add your credentials to{" "}
+                      <code className="bg-amber-100 px-1 rounded text-xs">.env.local</code>:
+                    </p>
+                    <pre className="text-xs bg-amber-100 rounded p-2 text-amber-900 select-all">
+{`LINKEDIN_CLIENT_ID=your_client_id
+LINKEDIN_CLIENT_SECRET=your_client_secret`}
+                    </pre>
+                    <ol className="text-xs text-amber-800 space-y-1 list-decimal list-inside">
+                      <li>
+                        Go to{" "}
+                        <a href="https://www.linkedin.com/developers/apps/new" target="_blank" rel="noopener noreferrer" className="underline font-medium">
+                          linkedin.com/developers → Create App
+                        </a>
+                      </li>
+                      <li>Under <strong>Auth</strong>, add redirect URL:<br />
+                        <code className="bg-amber-100 text-xs">{process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/auth/linkedin/callback</code>
+                      </li>
+                      <li>Under <strong>Products</strong>, request <em>Sign In with LinkedIn using OpenID Connect</em></li>
+                      <li>Copy the Client ID &amp; Secret into your <code className="bg-amber-100">.env.local</code> and restart the server</li>
+                    </ol>
+                  </div>
+                ) : linkedinConfigured === null ? (
+                  /* Loading */
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking configuration…
+                  </div>
                 ) : (
+                  /* Configured — show connect button */
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">Imports: profile photo, display name</p>
                     <Button
@@ -429,9 +466,8 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground mt-2">
-                  Note: LinkedIn&apos;s public API does not expose project details or full profile summaries to third-party apps.
-                  Add these manually in the profile form below.
+                <p className="text-xs text-muted-foreground">
+                  Note: LinkedIn&apos;s public API does not expose project details or full summaries to third-party apps — add these manually below.
                 </p>
               </CardContent>
             </Card>
