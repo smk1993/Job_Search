@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkAuthorizationType {
+  CITIZEN
+  PERMANENT_RESIDENT
+  WORK_VISA
+  STUDENT_VISA
+  NO_AUTHORIZATION
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FREELANCE
+  INTERNSHIP
+}
+
+enum WorkMode {
+  REMOTE
+  HYBRID
+  ONSITE
+}
+
+enum SourcePlatform {
+  LINKEDIN
+  INDEED
+  GLASSDOOR
+  ZIPRECRUITER
+  REDDIT
+  OTHER
+}
+
+enum ApplicationStatus {
+  SAVED
+  APPLIED
+  PHONE_SCREEN
+  INTERVIEW
+  OFFER
+  REJECTED
+  WITHDRAWN
+}
+
+enum EmailStatus {
+  SENT
+  FAILED
+  BOUNCED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  password      String?
+  country       String?   @default("US")
+  workAuthType  WorkAuthorizationType? @default(NO_AUTHORIZATION)
+  linkedinUrl   String?
+  githubUrl     String?
+  phone         String?
+  bio           String?
+  resumeUrl     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts          Account[]
+  sessions          Session[]
+  savedJobs         SavedJob[]
+  applications      JobApplication[]
+  coverLetters      CoverLetter[]
+  recruiterContacts RecruiterContact[]
+  emailLogs         EmailLog[]
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Job {
+  id               String         @id @default(cuid())
+  title            String
+  company          String
+  location         String?
+  description      String         @db.Text
+  jobType          JobType?
+  workMode         WorkMode?
+  sourceUrl        String         @unique
+  sourcePlatform   SourcePlatform
+  postedAt         DateTime?
+  salary           String?
+  salaryMin        Int?
+  salaryMax        Int?
+  requiresUsAuth   Boolean        @default(false)
+  workAuthKeywords String[]
+  isRedditPost     Boolean        @default(false)
+  redditPostId     String?
+  authorUsername   String?
+  subreddit        String?
+  contactEmail     String?
+  contactLinkedin  String?
+  isActive         Boolean        @default(true)
+  fetchedAt        DateTime       @default(now())
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  savedBy      SavedJob[]
+  applications JobApplication[]
+  coverLetters CoverLetter[]
+
+  @@index([sourcePlatform])
+  @@index([requiresUsAuth])
+  @@index([workMode])
+  @@index([postedAt])
+  @@index([isRedditPost])
+}
+
+model SavedJob {
+  id      String   @id @default(cuid())
+  userId  String
+  jobId   String
+  savedAt DateTime @default(now())
+  notes   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@index([userId])
+}
+
+model JobApplication {
+  id            String            @id @default(cuid())
+  userId        String
+  jobId         String
+  status        ApplicationStatus @default(APPLIED)
+  appliedAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  notes         String?           @db.Text
+  coverLetterId String?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job         Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  coverLetter CoverLetter? @relation(fields: [coverLetterId], references: [id])
+
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([status])
+}
+
+model CoverLetter {
+  id          String   @id @default(cuid())
+  userId      String
+  jobId       String
+  content     String   @db.Text
+  prompt      String?  @db.Text
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job          Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+
+  @@index([userId])
+  @@index([jobId])
+}
+
+model RecruiterContact {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String?
+  email          String?
+  company        String?
+  linkedinUrl    String?
+  redditUsername String?
+  jobId          String?
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model EmailLog {
+  id             String      @id @default(cuid())
+  userId         String
+  recipientEmail String
+  subject        String
+  body           String      @db.Text
+  resendId       String?
+  sentAt         DateTime    @default(now())
+  status         EmailStatus @default(SENT)
+  errorMessage   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sentAt])
+}
