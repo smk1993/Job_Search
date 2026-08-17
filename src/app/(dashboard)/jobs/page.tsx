@@ -7,17 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { JobCard } from "@/components/jobs/JobCard";
-import { RedditJobCard } from "@/components/jobs/RedditJobCard";
 import { AIQueryInterpretation } from "@/components/jobs/AIQueryInterpretation";
 import { SearchSummaryBar } from "@/components/jobs/SearchSummaryBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useJobs } from "@/hooks/useJobs";
 import { useDebounce } from "@/hooks/useDebounce";
-import { Search, BriefcaseIcon, ChevronLeft, ChevronRight, Flame } from "lucide-react";
+import { Search, BriefcaseIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import type { JobWithAuthStatus } from "@/types/job";
 
 export default function JobsPage() {
@@ -25,10 +22,8 @@ export default function JobsPage() {
   const [workMode, setWorkMode] = useState("all");
   const [jobType, setJobType] = useState("all");
   const [applyWorkAuthFilter, setApplyWorkAuthFilter] = useState(true);
-  const [includeHN, setIncludeHN] = useState(false);
   const [page, setPage] = useState(1);
 
-  // 300ms debounce — fast enough to feel responsive while avoiding excess API calls
   const debouncedQuery = useDebounce(query, 300);
 
   const { data, isLoading, isFetching } = useJobs({
@@ -37,22 +32,22 @@ export default function JobsPage() {
     jobType,
     page,
     applyWorkAuthFilter,
-    includeHN,
+    includeHN: false,
   });
 
-  const allJobs: JobWithAuthStatus[] = data?.jobs ?? [];
-  const gridJobs = allJobs.filter((j) => !j.isRedditPost);
-  const hnJobs = allJobs.filter((j) => j.isRedditPost);
-
+  const jobs: JobWithAuthStatus[] = data?.jobs ?? [];
   const interpretation: string | null = data?.interpretation ?? null;
   const confidence: number = data?.confidence ?? 0;
   const freeSourceCount: number = data?.freeSourceCount ?? 0;
+  // jsearchCount is used to determine if there's a next page
+  // (free-source results are page-1-only and don't have more pages)
+  const jsearchCount: number = data?.jsearchCount ?? 0;
 
   const isSearching = query !== debouncedQuery || isFetching;
 
   // Build per-platform counts for the summary bar
-  const platformCounts = gridJobs.reduce<Record<string, number>>((acc, job) => {
-    const p = job.sourcePlatform ?? "OTHER";
+  const platformCounts = jobs.reduce<Record<string, number>>((acc, job) => {
+    const p = job.sourcePlatform ?? "Other";
     acc[p] = (acc[p] ?? 0) + 1;
     return acc;
   }, {});
@@ -63,7 +58,7 @@ export default function JobsPage() {
       <TopNav title="Search Jobs" />
       <div className="p-6 space-y-4">
         {/* Search Bar */}
-        <div className="relative flex-1">
+        <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
@@ -86,46 +81,35 @@ export default function JobsPage() {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-4 pb-4 border-b">
           <div className="flex items-center gap-2">
-            <Label className="text-sm font-medium whitespace-nowrap">Work Mode:</Label>
+            <Label className="text-sm font-medium whitespace-nowrap">Work Mode</Label>
             <Select value={workMode} onValueChange={(v) => { setWorkMode(v); setPage(1); }}>
               <SelectTrigger className="w-36 h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="all">All modes</SelectItem>
                 <SelectItem value="REMOTE">Remote</SelectItem>
                 <SelectItem value="HYBRID">Hybrid</SelectItem>
-                <SelectItem value="ONSITE">Onsite</SelectItem>
+                <SelectItem value="ONSITE">On-site</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="flex items-center gap-2">
-            <Label className="text-sm font-medium whitespace-nowrap">Job Type:</Label>
+            <Label className="text-sm font-medium whitespace-nowrap">Job Type</Label>
             <Select value={jobType} onValueChange={(v) => { setJobType(v); setPage(1); }}>
               <SelectTrigger className="w-36 h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="all">All types</SelectItem>
                 <SelectItem value="FULL_TIME">Full-time</SelectItem>
                 <SelectItem value="PART_TIME">Part-time</SelectItem>
                 <SelectItem value="CONTRACT">Contract</SelectItem>
+                <SelectItem value="FREELANCE">Freelance</SelectItem>
+                <SelectItem value="INTERNSHIP">Internship</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-
-          {/* HN toggle */}
-          <div className="flex items-center gap-2">
-            <Switch
-              id="include-hn"
-              checked={includeHN}
-              onCheckedChange={(v) => { setIncludeHN(v); setPage(1); }}
-            />
-            <Label htmlFor="include-hn" className="text-sm cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
-              <Flame className="h-3.5 w-3.5 text-orange-500" />
-              Include HN Jobs
-            </Label>
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -151,7 +135,7 @@ export default function JobsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {Array.from({ length: 9 }).map((_, i) => <Skeleton key={i} className="h-72" />)}
           </div>
-        ) : allJobs.length === 0 ? (
+        ) : jobs.length === 0 ? (
           <EmptyState
             icon={BriefcaseIcon}
             title="No jobs found"
@@ -169,80 +153,48 @@ export default function JobsPage() {
             }
           />
         ) : (
-          <div className="space-y-8">
-            {/* ── Main grid results ────────────────────────────────────── */}
-            {gridJobs.length > 0 && (
-              <div className="space-y-4">
-                {/* Summary bar with source breakdown */}
-                <SearchSummaryBar
-                  totalCount={gridJobs.length}
-                  sourceCounts={sourceCounts}
-                  isFetching={isFetching}
-                  query={debouncedQuery}
-                />
-                {freeSourceCount > 0 && !isFetching && (
-                  <p className="text-xs text-muted-foreground -mt-2">
-                    Includes {freeSourceCount} results from Remotive, RemoteOK &amp; Arbeitnow
-                  </p>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {gridJobs.map((job) => (
-                    <JobCard key={job.id} job={job} />
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                <div className="flex items-center justify-center gap-3 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">Page {page}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => p + 1)}
-                    disabled={gridJobs.length < 10}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* ── HN jobs section ───────────────────────────────────────── */}
-            {includeHN && hnJobs.length > 0 && (
-              <div className="space-y-4">
-                <Separator />
-                <div className="flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-orange-500" />
-                  <h3 className="text-sm font-semibold">From Hacker News</h3>
-                  <Badge variant="secondary" className="bg-orange-100 text-orange-800 text-xs">
-                    {hnJobs.length} posts
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">· Keyword-matched from &quot;Ask HN: Who is Hiring?&quot;</span>
-                </div>
-                <div className="space-y-3">
-                  {hnJobs.map((job) => (
-                    <RedditJobCard key={job.id} job={job} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* HN enabled but no matches */}
-            {includeHN && hnJobs.length === 0 && gridJobs.length > 0 && (
-              <p className="text-xs text-muted-foreground text-center py-2">
-                No Hacker News posts matched &quot;{debouncedQuery}&quot;
+          <div className="space-y-4">
+            <SearchSummaryBar
+              totalCount={jobs.length}
+              sourceCounts={sourceCounts}
+              isFetching={isFetching}
+              query={debouncedQuery}
+            />
+            {freeSourceCount > 0 && !isFetching && (
+              <p className="text-xs text-muted-foreground -mt-2">
+                Includes {freeSourceCount} results from Remotive, RemoteOK &amp; Arbeitnow
               </p>
             )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {jobs.map((job) => (
+                <JobCard key={job.id} job={job} />
+              ))}
+            </div>
+
+            {/* Pagination — driven by jsearchCount so free-source-only pages don't
+                falsely suggest there's a next page */}
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">Page {page}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={jsearchCount < 10}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         )}
       </div>

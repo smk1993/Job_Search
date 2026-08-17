@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { searchJSearchJobs } from "@/lib/jsearch";
-import { scrapeRedditJobs } from "@/lib/reddit";
 import { filterByWorkAuth } from "@/lib/work-auth-filter";
 import { parseSearchQuery } from "@/lib/ai-query-parser";
 import { fetchFromFreeSourcesRegistry } from "@/lib/sources/registry";
@@ -31,12 +30,6 @@ interface MappedJob {
   contactEmail: string | null;
   contactLinkedin: string | null;
   isSaved: boolean;
-}
-
-function matchesQuery(text: string, query: string): boolean {
-  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  const haystack = text.toLowerCase();
-  return terms.some((term) => haystack.includes(term));
 }
 
 function normalizedToMapped(job: NormalizedJob, savedUrls: Set<string>): MappedJob {
@@ -77,12 +70,13 @@ export async function GET(req: NextRequest) {
   const jobType = searchParams.get("jobType") ?? "all";
   const page = parseInt(searchParams.get("page") ?? "1", 10);
   const applyWorkAuthFilter = searchParams.get("applyWorkAuthFilter") === "true";
-  const includeHN = searchParams.get("includeHN") === "true";
 
-  if (!q.trim()) return NextResponse.json({ jobs: [], interpretation: null, freeSourceCount: 0, hnCount: 0 });
+  if (!q.trim()) {
+    return NextResponse.json({ jobs: [], interpretation: null, jsearchCount: 0, freeSourceCount: 0 });
+  }
 
   try {
-    // ── Step 1: parse query + fetch user in parallel (both are fast/cached) ─
+    // Step 1: parse query + fetch user (fast, cached)
     const [parsedQuery, user] = await Promise.all([
       parseSearchQuery(q),
       prisma.user.findUnique({
@@ -95,19 +89,20 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // ── Step 2: run all job sources in parallel now that parsedQuery is ready ─
-    const [jsearchRaw, hnJobs, freeRegistry] = await Promise.all([
+    // Step 2: run all job sources in parallel
+    const [jsearchRaw, freeRegistry] = await Promise.all([
       searchJSearchJobs({ query: q, page, workMode }),
-      includeHN ? scrapeRedditJobs({}) : Promise.resolve([]),
-      // Only fetch free sources on page 1 (they're not paginated)
-      page === 1 ? fetchFromFreeSourcesRegistry(q, parsedQuery) : Promise.resolve({ jobs: [], sourceResults: [] }),
+      // Free sources are not paginated — only fetch on page 1
+      page === 1
+        ? fetchFromFreeSourcesRegistry(q, parsedQuery)
+        : Promise.resolve({ jobs: [], sourceResults: [] }),
     ]);
 
     const savedSourceUrls = new Set(
       (user?.savedJobs ?? []).map((s: { job: { sourceUrl: string } }) => s.job.sourceUrl)
     );
 
-    // ── Map JSearch jobs ─────────────────────────────────────────────────────
+    // Map JSearch jobs
     const filteredByType = jobType === "all"
       ? jsearchRaw
       : jsearchRaw.filter((j) => j.jobType === jobType);
@@ -137,7 +132,7 @@ export async function GET(req: NextRequest) {
       isSaved: savedSourceUrls.has(j.sourceUrl),
     }));
 
-    // ── Map free-source registry jobs ────────────────────────────────────────
+    // Map free-source jobs
     const freeJobsFiltered = jobType === "all"
       ? freeRegistry.jobs
       : freeRegistry.jobs.filter((j) => j.jobType === jobType);
@@ -146,39 +141,8 @@ export async function GET(req: NextRequest) {
       normalizedToMapped(j, savedSourceUrls)
     );
 
-    // ── Map HN jobs (only on page 1) ─────────────────────────────────────────
-    const mappedHN: MappedJob[] = includeHN && page === 1
-      ? hnJobs
-          .filter((j) => matchesQuery(`${j.title} ${j.description}`, q))
-          .map((j) => ({
-            id: j.redditPostId ?? j.sourceUrl,
-            title: j.title,
-            company: j.company ?? "Unknown",
-            location: j.location,
-            description: j.description,
-            jobType: null,
-            workMode: j.description.toLowerCase().includes("remote") ? "REMOTE" : null,
-            sourceUrl: j.sourceUrl,
-            sourcePlatform: "HACKERNEWS",
-            postedAt: j.postedAt.toISOString(),
-            salary: j.salary,
-            salaryMin: null,
-            salaryMax: null,
-            requiresUsAuth: j.requiresUsAuth,
-            workAuthKeywords: j.workAuthKeywords,
-            isRedditPost: true,
-            redditPostId: j.redditPostId,
-            authorUsername: j.authorUsername,
-            subreddit: j.subreddit,
-            contactEmail: j.contactEmail,
-            contactLinkedin: j.contactLinkedin,
-            isSaved: false,
-          }))
-      : [];
-
-    // ── Combine all non-HN results ────────────────────────────────────────────
     // JSearch first (most relevant), then free sources
-    const combined = [...mappedJSearch, ...mappedFree, ...mappedHN];
+    const combined = [...mappedJSearch, ...mappedFree];
 
     const jobs = filterByWorkAuth(
       combined,
@@ -189,7 +153,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       jobs,
-      hnCount: mappedHN.length,
+      // jsearchCount drives pagination — free sources are page-1-only, not paginated
+      jsearchCount: mappedJSearch.length,
       freeSourceCount: mappedFree.length,
       interpretation: parsedQuery.interpretation,
       confidence: parsedQuery.confidence,

@@ -3,6 +3,12 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { JobWithAuthStatus } from "@/types/job";
 
+type DbPlatform = "LINKEDIN" | "INDEED" | "GLASSDOOR" | "ZIPRECRUITER" | "REDDIT" | "OTHER";
+const DB_PLATFORMS = new Set<string>(["LINKEDIN", "INDEED", "GLASSDOOR", "ZIPRECRUITER", "REDDIT", "OTHER"]);
+function toDbPlatform(p: string): DbPlatform {
+  return DB_PLATFORMS.has(p) ? (p as DbPlatform) : "OTHER";
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,7 +32,7 @@ export async function POST(req: NextRequest) {
         jobType: (job.jobType as "FULL_TIME" | "PART_TIME" | "CONTRACT" | "FREELANCE" | "INTERNSHIP") ?? undefined,
         workMode: (job.workMode as "REMOTE" | "HYBRID" | "ONSITE") ?? undefined,
         sourceUrl: job.sourceUrl,
-        sourcePlatform: (job.sourcePlatform as "LINKEDIN" | "INDEED" | "GLASSDOOR" | "ZIPRECRUITER" | "REDDIT" | "OTHER"),
+        sourcePlatform: toDbPlatform(job.sourcePlatform),
         postedAt: job.postedAt ? new Date(job.postedAt) : undefined,
         salary: job.salary,
         salaryMin: job.salaryMin,
