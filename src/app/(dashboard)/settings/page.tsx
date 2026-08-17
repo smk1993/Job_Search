@@ -22,8 +22,11 @@ import {
   Download,
   X,
   User,
+  Sparkles,
+  CheckCircle2,
 } from "lucide-react";
 import { COUNTRIES } from "@/lib/utils";
+import type { ExtractedProfile } from "@/app/api/settings/resume/route";
 
 const WORK_AUTH_OPTIONS = [
   { value: "CITIZEN", label: "US Citizen", description: "Full work authorization, no restrictions" },
@@ -33,6 +36,16 @@ const WORK_AUTH_OPTIONS = [
   { value: "NO_AUTHORIZATION", label: "No US Work Authorization", description: "Jobs requiring US work auth will be filtered" },
 ];
 
+const FIELD_LABELS: Record<keyof ExtractedProfile, string> = {
+  name: "Full Name",
+  phone: "Phone",
+  email: "Email",
+  linkedinUrl: "LinkedIn URL",
+  githubUrl: "GitHub URL",
+  location: "Location",
+  summary: "Professional Summary",
+};
+
 export default function SettingsPage() {
   const { data: session, update } = useSession();
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +53,7 @@ export default function SettingsPage() {
   const [isUploadingResume, setIsUploadingResume] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Profile form fields
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [country, setCountry] = useState("US");
@@ -47,8 +61,14 @@ export default function SettingsPage() {
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   const [phone, setPhone] = useState("");
+
+  // Resume state
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
   const [resumeOriginalName, setResumeOriginalName] = useState<string | null>(null);
+
+  // CV extraction state
+  const [extractedProfile, setExtractedProfile] = useState<ExtractedProfile | null>(null);
+  const [appliedFromCV, setAppliedFromCV] = useState(false);
 
   useEffect(() => {
     axios.get("/api/settings").then((res) => {
@@ -84,6 +104,8 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingResume(true);
+    setExtractedProfile(null);
+    setAppliedFromCV(false);
     try {
       const formData = new FormData();
       formData.append("resume", file);
@@ -92,7 +114,15 @@ export default function SettingsPage() {
       });
       setResumeUrl(res.data.resumeUrl);
       setResumeOriginalName(res.data.originalName ?? file.name);
-      toast.success("Resume uploaded successfully!");
+
+      // Show extracted profile if any field was found
+      const extracted: ExtractedProfile = res.data.extractedProfile;
+      const hasAnyField = extracted && Object.values(extracted).some((v) => v !== null);
+      if (hasAnyField) {
+        setExtractedProfile(extracted);
+      }
+
+      toast.success("Resume uploaded!");
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err) ? err.response?.data?.error : null;
       toast.error(msg ?? "Failed to upload resume");
@@ -102,12 +132,25 @@ export default function SettingsPage() {
     }
   };
 
+  const handleApplyFromCV = () => {
+    if (!extractedProfile) return;
+    if (extractedProfile.name)       setName(extractedProfile.name);
+    if (extractedProfile.phone)      setPhone(extractedProfile.phone);
+    if (extractedProfile.linkedinUrl) setLinkedinUrl(extractedProfile.linkedinUrl);
+    if (extractedProfile.githubUrl)  setGithubUrl(extractedProfile.githubUrl);
+    if (extractedProfile.summary)    setBio(extractedProfile.summary);
+    setAppliedFromCV(true);
+    toast.success("Profile fields filled from your CV — click Save to keep them.");
+  };
+
   const handleRemoveResume = async () => {
     setIsUploadingResume(true);
     try {
       await axios.delete("/api/settings/resume");
       setResumeUrl(null);
       setResumeOriginalName(null);
+      setExtractedProfile(null);
+      setAppliedFromCV(false);
       toast.success("Resume removed");
     } catch {
       toast.error("Failed to remove resume");
@@ -123,6 +166,11 @@ export default function SettingsPage() {
   const willFilterJobs =
     isNonUSUser &&
     (workAuthType === "NO_AUTHORIZATION" || workAuthType === "WORK_VISA" || workAuthType === "STUDENT_VISA");
+
+  // Fields found in CV that are non-null
+  const cvFields = extractedProfile
+    ? (Object.entries(extractedProfile) as [keyof ExtractedProfile, string | null][]).filter(([, v]) => v !== null)
+    : [];
 
   return (
     <div>
@@ -141,6 +189,152 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* ── Resume Card (above form so extraction banner appears near top) ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Resume
+                </CardTitle>
+                <CardDescription>
+                  Upload your resume (PDF, DOCX — max 5MB). We&apos;ll auto-fill your profile details from it.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {resumeUrl ? (
+                  <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/40">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">
+                          {resumeOriginalName ?? `Resume.${resumeExt.toLowerCase()}`}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{resumeExt} file · Uploaded</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={resumeUrl} target="_blank" rel="noopener noreferrer" download>
+                          <Download className="h-3.5 w-3.5 mr-1" />
+                          Download
+                        </a>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploadingResume}
+                      >
+                        <Upload className="h-3.5 w-3.5 mr-1" />
+                        Replace
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveResume}
+                        disabled={isUploadingResume}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                    {isUploadingResume ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Uploading &amp; reading your CV…</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="h-6 w-6 text-muted-foreground" />
+                        <p className="text-sm font-medium">Click to upload your resume</p>
+                        <p className="text-xs text-muted-foreground">PDF or DOCX up to 5MB</p>
+                      </div>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.doc,.docx"
+                      onChange={handleResumeUpload}
+                      disabled={isUploadingResume}
+                    />
+                  </label>
+                )}
+
+                {/* Hidden input for Replace flow */}
+                {resumeUrl && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleResumeUpload}
+                    disabled={isUploadingResume}
+                  />
+                )}
+
+                {isUploadingResume && resumeUrl && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Uploading &amp; reading your CV…
+                  </div>
+                )}
+
+                {/* ── CV Extraction Banner ───────────────────────────────── */}
+                {cvFields.length > 0 && !appliedFromCV && (
+                  <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
+                        <p className="text-sm font-medium text-violet-900">
+                          We found these details in your CV
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setExtractedProfile(null)}
+                        className="text-violet-400 hover:text-violet-600 transition-colors"
+                        aria-label="Dismiss"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <dl className="grid grid-cols-1 gap-1.5">
+                      {cvFields.map(([key, value]) => (
+                        <div key={key} className="flex gap-2 text-sm">
+                          <dt className="text-violet-600 font-medium whitespace-nowrap min-w-[120px]">
+                            {FIELD_LABELS[key]}:
+                          </dt>
+                          <dd className="text-violet-800 truncate">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+
+                    <Button
+                      size="sm"
+                      onClick={handleApplyFromCV}
+                      className="bg-violet-600 hover:bg-violet-700 text-white"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                      Apply to Profile
+                    </Button>
+                  </div>
+                )}
+
+                {appliedFromCV && (
+                  <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Profile fields filled from CV — review below and click Save.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <form onSubmit={handleSave} className="space-y-6">
               {/* Profile Information */}
               <Card>
@@ -188,11 +382,11 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Professional Bio</Label>
+                    <Label>Professional Summary</Label>
                     <Textarea
                       value={bio}
                       onChange={(e) => setBio(e.target.value)}
-                      placeholder="Brief professional summary used for AI cover letter generation..."
+                      placeholder="Brief professional summary used for AI cover letter generation…"
                       className="min-h-[100px] resize-none"
                       maxLength={500}
                     />
@@ -273,110 +467,12 @@ export default function SettingsPage() {
 
               <Button type="submit" disabled={isSaving} className="w-full">
                 {isSaving ? (
-                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving...</>
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving…</>
                 ) : (
                   "Save Profile"
                 )}
               </Button>
             </form>
-
-            {/* Resume — separate from the main form so submit doesn't trigger it */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Resume
-                </CardTitle>
-                <CardDescription>
-                  Upload your resume (PDF, DOC, DOCX — max 5MB). Used as context for AI cover letter generation.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {resumeUrl ? (
-                  <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/40">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <FileText className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {resumeOriginalName ?? `Resume.${resumeExt.toLowerCase()}`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{resumeExt} file · Uploaded</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={resumeUrl} target="_blank" rel="noopener noreferrer" download>
-                          <Download className="h-3.5 w-3.5 mr-1" />
-                          Download
-                        </a>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isUploadingResume}
-                      >
-                        <Upload className="h-3.5 w-3.5 mr-1" />
-                        Replace
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleRemoveResume}
-                        disabled={isUploadingResume}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                    {isUploadingResume ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Uploading...</p>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-2">
-                        <Upload className="h-6 w-6 text-muted-foreground" />
-                        <p className="text-sm font-medium">Click to upload your resume</p>
-                        <p className="text-xs text-muted-foreground">PDF, DOC, DOCX up to 5MB</p>
-                      </div>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.doc,.docx"
-                      onChange={handleResumeUpload}
-                      disabled={isUploadingResume}
-                    />
-                  </label>
-                )}
-
-                {/* Hidden input for replace flow when resume already exists */}
-                {resumeUrl && (
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept=".pdf,.doc,.docx"
-                    onChange={handleResumeUpload}
-                    disabled={isUploadingResume}
-                  />
-                )}
-
-                {isUploadingResume && resumeUrl && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Uploading...
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
         )}
       </div>
