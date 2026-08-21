@@ -13,6 +13,6 @@ export default defineConfig({
     // Use process.env directly so a missing/empty var doesn't throw at config
     // load time. `prisma generate` doesn't connect to the DB; only
     // `prisma migrate deploy` needs a real URL (supplied via CI secrets).
-    url: process.env.DATABASE_URL ?? "postgresql://placeholder@localhost:5432/placeholder",
+    url: process.env.DATABASE_URL || "postgresql://placeholder@localhost:5432/placeholder",
   },
 });
