@@ -11,6 +11,10 @@ interface LinkedInUserInfo {
   email?: string;
 }
 
+interface LinkedInMeResponse {
+  vanityName?: string;
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
@@ -72,12 +76,6 @@ export async function GET(req: NextRequest) {
 
     const profile = await profileRes.json() as LinkedInUserInfo;
 
-    // Determine what to update
-    const currentUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, image: true },
-    });
-
     const updateData: Record<string, string | null> = {};
 
     // Always update profile photo from LinkedIn
@@ -85,9 +83,24 @@ export async function GET(req: NextRequest) {
       updateData.image = profile.picture;
     }
 
-    // Only update name if user hasn't set one
-    if (profile.name && !currentUser?.name) {
+    // Always update name from LinkedIn
+    if (profile.name) {
       updateData.name = profile.name;
+    }
+
+    // Try to fetch LinkedIn profile URL via vanity name
+    try {
+      const meRes = await fetch("https://api.linkedin.com/v2/me?projection=(id,vanityName)", {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      if (meRes.ok) {
+        const meData = await meRes.json() as LinkedInMeResponse;
+        if (meData.vanityName) {
+          updateData.linkedinUrl = `https://www.linkedin.com/in/${meData.vanityName}`;
+        }
+      }
+    } catch {
+      // vanity name fetch is optional — ignore failures
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -98,6 +111,7 @@ export async function GET(req: NextRequest) {
     const imported: string[] = [];
     if (updateData.image) imported.push("photo");
     if (updateData.name) imported.push("name");
+    if (updateData.linkedinUrl) imported.push("LinkedIn URL");
 
     const doneUrl = new URL("/oauth/linkedin/done", req.url);
     if (imported.length) doneUrl.searchParams.set("imported", imported.join(","));
