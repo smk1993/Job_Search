@@ -31,16 +31,15 @@ jobs:
         run: npm ci
 
       - name: Validate DATABASE_URL is set
+        env:
+          SECRET_IS_SET: ${{ secrets.DATABASE_URL != '' }}
         run: |
-          echo "DATABASE_URL length: ${#DATABASE_URL}"
-          echo "DATABASE_URL empty check: $([ -z "$DATABASE_URL" ] && echo YES || echo NO)"
-          if [ -z "$DATABASE_URL" ]; then
-            echo "ERROR: DATABASE_URL secret is not set or is empty."
-            echo "Go to: https://github.com/smk1993/Job_Search/settings/secrets/actions"
-            echo "Add a Repository Secret named exactly: DATABASE_URL"
+          echo "Secret DATABASE_URL is non-empty: $SECRET_IS_SET"
+          echo "Env var DATABASE_URL length: ${#DATABASE_URL}"
+          if [ "$SECRET_IS_SET" != "true" ]; then
+            echo "ERROR: DATABASE_URL secret is missing or empty in GitHub repository secrets."
             exit 1
           fi
-          echo "DATABASE_URL is configured correctly."
 
       - name: Generate Prisma client
         run: npx prisma generate
