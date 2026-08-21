@@ -32,11 +32,15 @@ jobs:
 
       - name: Validate DATABASE_URL is set
         run: |
+          echo "DATABASE_URL length: ${#DATABASE_URL}"
+          echo "DATABASE_URL empty check: $([ -z "$DATABASE_URL" ] && echo YES || echo NO)"
           if [ -z "$DATABASE_URL" ]; then
-            echo "ERROR: DATABASE_URL secret is not configured in GitHub repository secrets."
+            echo "ERROR: DATABASE_URL secret is not set or is empty."
+            echo "Go to: https://github.com/smk1993/Job_Search/settings/secrets/actions"
+            echo "Add a Repository Secret named exactly: DATABASE_URL"
             exit 1
           fi
-          echo "DATABASE_URL is set (starts with: ${DATABASE_URL:0:20}...)"
+          echo "DATABASE_URL is configured correctly."
 
       - name: Generate Prisma client
         run: npx prisma generate
