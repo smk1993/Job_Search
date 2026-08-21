@@ -1,0 +1,48 @@
+name: CD
+
+# Deploy to Railway on every push to main.
+# Assumes GitHub Secrets are configured:
+#   DATABASE_URL        — Neon pooler connection string
+#   RAILWAY_TOKEN       — Railway API token (railway whoami --token)
+#   RAILWAY_PROJECT_ID  — Railway project ID (visible in Railway dashboard URL)
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Migrate + Deploy to Railway
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # Run migrations against the production database BEFORE Railway pulls
+      # the new image, so the schema is always up-to-date before traffic
+      # switches over.
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to Railway
+        run: |
+          npm install -g @railway/cli@3
+          railway up
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}

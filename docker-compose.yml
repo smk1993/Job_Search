@@ -1,0 +1,53 @@
+version: '3.8'
+
+# Development environment only.
+# Production is deployed to Railway via GitHub Actions (see .github/workflows/cd.yml).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobsearch
+      POSTGRES_PASSWORD: jobsearch_dev
+      POSTGRES_DB: jobsearch
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobsearch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  app:
+    build:
+      context: .
+      # Use the deps stage so the image is lighter and supports hot-reload
+      target: deps
+    volumes:
+      # Mount the entire project for hot-reload
+      - .:/app
+      # Prevent host node_modules from shadowing the container's
+      - /app/node_modules
+      # Persist uploaded resumes across container restarts
+      - resume_uploads:/app/public/uploads/resumes
+    environment:
+      DATABASE_URL: postgresql://jobsearch:jobsearch_dev@postgres:5432/jobsearch
+      NEXTAUTH_URL: http://localhost:3000
+    env_file:
+      # Copy .env.example to .env and fill in your API keys (never committed — see .gitignore)
+      - .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "npx prisma generate &&
+             npx prisma migrate deploy &&
+             npm run dev"
+
+volumes:
+  postgres_data:
+  resume_uploads:

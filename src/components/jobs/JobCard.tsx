@@ -101,6 +101,7 @@ export function JobCard({ job, onSaveToggle }: JobCardProps) {
       <CardContent className="p-4 flex flex-col gap-3 flex-1">
         {/* Header */}
         <div className="flex items-start gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={getCompanyLogoUrl(job.company)}
             alt={job.company}
