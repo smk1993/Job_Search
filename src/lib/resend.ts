@@ -1,8 +1,5 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "noreply@jobsearch.app";
-
 export async function sendEmail({
   to,
   subject,
@@ -14,6 +11,8 @@ export async function sendEmail({
   body: string;
   fromName?: string;
 }) {
+  const resend = new Resend(process.env.RESEND_API_KEY!);
+  const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "noreply@jobsearch.app";
   const html = `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.7;color:#333;">
     ${body
       .split("\n")
