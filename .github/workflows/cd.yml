@@ -2,9 +2,9 @@ name: CD
 
 # Deploy to Railway on every push to main.
 # Assumes GitHub Secrets are configured:
-#   DATABASE_URL        — Neon pooler connection string
-#   RAILWAY_TOKEN       — Railway API token (railway whoami --token)
-#   RAILWAY_PROJECT_ID  — Railway project ID (visible in Railway dashboard URL)
+#   DATABASE_URL        — Neon connection string
+#   RAILWAY_TOKEN       — Railway API token
+#   RAILWAY_PROJECT_ID  — Railway project ID
 on:
   push:
     branches:
@@ -14,10 +14,6 @@ jobs:
   deploy:
     name: Migrate + Deploy to Railway
     runs-on: ubuntu-latest
-
-    # Set DATABASE_URL at job level so every step inherits it.
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -30,25 +26,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate DATABASE_URL is set
-        env:
-          SECRET_IS_SET: ${{ secrets.DATABASE_URL != '' }}
-        run: |
-          echo "Secret DATABASE_URL is non-empty: $SECRET_IS_SET"
-          echo "Env var DATABASE_URL length: ${#DATABASE_URL}"
-          if [ "$SECRET_IS_SET" != "true" ]; then
-            echo "ERROR: DATABASE_URL secret is missing or empty in GitHub repository secrets."
-            exit 1
-          fi
-
       - name: Generate Prisma client
         run: npx prisma generate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       # Run migrations against the production database BEFORE Railway pulls
       # the new image, so the schema is always up-to-date before traffic
       # switches over.
       - name: Run database migrations
         run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Deploy to Railway
         run: |
