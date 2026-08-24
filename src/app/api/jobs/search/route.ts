@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     const savedSourceUrls = new Set<string>(
-      (user?.savedJobs ?? []).map((s) => s.job.sourceUrl)
+      user?.savedJobs.map((s) => s.job.sourceUrl) ?? []
     );
 
     // Map JSearch jobs
