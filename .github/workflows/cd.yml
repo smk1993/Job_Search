@@ -1,10 +1,11 @@
 name: CD
 
-# Deploy to Railway on every push to main.
+# Deploy to Vercel on every push to main.
 # Assumes GitHub Secrets are configured:
 #   DATABASE_URL        — Neon connection string
-#   RAILWAY_TOKEN       — Railway API token
-#   RAILWAY_PROJECT_ID  — Railway project ID
+#   VERCEL_TOKEN        — Vercel API token (vercel.com/account/tokens)
+#   VERCEL_ORG_ID       — found in Vercel project Settings → General
+#   VERCEL_PROJECT_ID   — found in Vercel project Settings → General
 on:
   push:
     branches:
@@ -12,7 +13,7 @@ on:
 
 jobs:
   deploy:
-    name: Migrate + Deploy to Railway
+    name: Migrate + Deploy to Vercel
     runs-on: ubuntu-latest
 
     steps:
@@ -31,20 +32,16 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      # Run migrations against the production database BEFORE Railway pulls
-      # the new image, so the schema is always up-to-date before traffic
+      # Run migrations against the production database BEFORE Vercel deploys
+      # the new code, so the schema is always up-to-date before traffic
       # switches over.
       - name: Run database migrations
-        run: |
-          echo "DB host: $(node -e "const u=process.env.DATABASE_URL||'';console.log(u.split('@')[1]?.split('/')[0]||'EMPTY')")"
-          npx prisma migrate deploy
+        run: npx prisma migrate deploy
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      - name: Deploy to Railway
-        run: |
-          npm install -g @railway/cli@3
-          railway up
+      - name: Deploy to Vercel
+        run: npx vercel --prod --token ${{ secrets.VERCEL_TOKEN }}
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

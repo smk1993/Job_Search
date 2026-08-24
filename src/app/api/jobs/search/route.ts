@@ -98,8 +98,8 @@ export async function GET(req: NextRequest) {
         : Promise.resolve({ jobs: [], sourceResults: [] }),
     ]);
 
-    const savedSourceUrls = new Set(
-      (user?.savedJobs ?? []).map((s: { job: { sourceUrl: string } }) => s.job.sourceUrl)
+    const savedSourceUrls = new Set<string>(
+      (user?.savedJobs ?? []).map((s) => s.job.sourceUrl)
     );
 
     // Map JSearch jobs
