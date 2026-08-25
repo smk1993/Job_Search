@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Search,
+  Sparkles,
   Heart,
   Briefcase,
   FileText,
@@ -19,6 +20,7 @@ import {
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Search Jobs", icon: Search },
+  { href: "/curated-jobs", label: "For You", icon: Sparkles },
   { href: "/saved", label: "Saved Jobs", icon: Heart },
   { href: "/applications", label: "Applications", icon: Briefcase },
   { href: "/cover-letters", label: "Cover Letters", icon: FileText },

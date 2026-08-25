@@ -124,12 +124,23 @@ export async function POST(req: NextRequest) {
   await writeFile(filePath, buffer);
 
   const resumeUrl = `/uploads/resumes/${filename}`;
+
+  // Always save the URL first so the upload is never lost even if text extraction fails
   await prisma.user.update({ where: { id: userId }, data: { resumeUrl } });
 
-  // Parse CV text and extract profile fields (runs in parallel with DB update above,
-  // but we await here to return the result in one response)
-  const resumeText = await extractTextFromBuffer(buffer, file.type, file.name);
-  const extractedProfile = await parseResumeWithAI(resumeText);
+  // Extract and persist resume text for DB-backed persistence (Vercel wipes public/ on redeploy)
+  let resumeText: string | null = null;
+  let extractedProfile: ExtractedProfile = { name: null, phone: null, email: null, linkedinUrl: null, githubUrl: null, location: null, summary: null };
+  try {
+    const text = await extractTextFromBuffer(buffer, file.type, file.name);
+    resumeText = text || null;
+    extractedProfile = await parseResumeWithAI(text);
+    if (resumeText) {
+      await prisma.user.update({ where: { id: userId }, data: { resumeText } });
+    }
+  } catch {
+    // Text extraction failure is non-fatal — resume URL is already saved
+  }
 
   return NextResponse.json({ resumeUrl, originalName: file.name, extractedProfile });
 }
@@ -140,6 +151,7 @@ export async function DELETE() {
   const userId = (session.user as { id?: string }).id!;
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { resumeUrl: true } });
+
   if (user?.resumeUrl) {
     const filePath = path.join(process.cwd(), "public", user.resumeUrl);
     try {
@@ -147,8 +159,10 @@ export async function DELETE() {
     } catch {
       // File may already be gone — that's fine
     }
-    await prisma.user.update({ where: { id: userId }, data: { resumeUrl: null } });
   }
+
+  // Always clear both fields regardless of whether the file existed on disk
+  await prisma.user.update({ where: { id: userId }, data: { resumeUrl: null, resumeText: null } });
 
   return NextResponse.json({ success: true });
 }

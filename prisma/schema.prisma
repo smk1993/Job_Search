@@ -67,6 +67,7 @@ model User {
   phone         String?
   bio           String?
   resumeUrl     String?
+  resumeText    String?   @db.Text
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
