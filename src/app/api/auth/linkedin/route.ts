@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
   }
 
   const state = randomBytes(16).toString("hex");
-  const redirectUri = `${process.env.NEXTAUTH_URL}/api/auth/linkedin/callback`;
+  // Derive origin from the incoming request so this works regardless of NEXTAUTH_URL env var
+  const redirectUri = `${new URL(req.url).origin}/api/auth/linkedin/callback`;
 
   const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
   authUrl.searchParams.set("response_type", "code");
