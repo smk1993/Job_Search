@@ -1,15 +1,15 @@
 name: CD
 
-# Deploy to Vercel on every push to main.
+# Production deploy — triggered manually from GitHub Actions UI.
+# Go to Actions → CD → Run workflow to deploy to production.
+#
 # Assumes GitHub Secrets are configured:
 #   DATABASE_URL        — Neon connection string
 #   VERCEL_TOKEN        — Vercel API token (vercel.com/account/tokens)
 #   VERCEL_ORG_ID       — found in Vercel project Settings → General
 #   VERCEL_PROJECT_ID   — found in Vercel project Settings → General
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
