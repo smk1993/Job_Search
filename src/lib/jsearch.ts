@@ -61,12 +61,14 @@ export async function searchJSearchJobs({
   query,
   page = 1,
   workMode = "all",
+  country,
 }: {
   query: string;
   page?: number;
   workMode?: string;
+  country?: string;
 }): Promise<JSearchJob[]> {
-  const cacheKey = `${query.toLowerCase().trim()}:${page}:${workMode}`;
+  const cacheKey = `${query.toLowerCase().trim()}:${page}:${workMode}:${country ?? ""}`;
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.jobs;
@@ -75,6 +77,7 @@ export async function searchJSearchJobs({
   let apiQuery = query;
   if (workMode === "REMOTE") apiQuery += " remote";
   if (workMode === "HYBRID") apiQuery += " hybrid";
+  if (country && country !== "all") apiQuery += ` in ${country}`;
 
   const response = await client.get("/search", {
     params: {

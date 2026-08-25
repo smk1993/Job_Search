@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { searchJSearchJobs } from "@/lib/jsearch";
-import { filterByWorkAuth } from "@/lib/work-auth-filter";
+import { filterByWorkAuth, detectVisaSponsorship } from "@/lib/work-auth-filter";
 import { parseSearchQuery } from "@/lib/ai-query-parser";
 import { fetchFromFreeSourcesRegistry } from "@/lib/sources/registry";
 import type { NormalizedJob } from "@/lib/sources/types";
@@ -23,6 +23,7 @@ interface MappedJob {
   salaryMax: number | null;
   requiresUsAuth: boolean;
   workAuthKeywords: string[];
+  sponsorsVisa: boolean;
   isRedditPost: boolean;
   redditPostId: string | null;
   authorUsername: string | null;
@@ -49,6 +50,7 @@ function normalizedToMapped(job: NormalizedJob, savedUrls: Set<string>): MappedJ
     salaryMax: job.salaryMax,
     requiresUsAuth: job.requiresUsAuth,
     workAuthKeywords: job.workAuthKeywords,
+    sponsorsVisa: detectVisaSponsorship(job.description),
     isRedditPost: job.isRedditPost,
     redditPostId: job.redditPostId,
     authorUsername: job.authorUsername,
@@ -68,8 +70,10 @@ export async function GET(req: NextRequest) {
   const q = searchParams.get("q") ?? "";
   const workMode = searchParams.get("workMode") ?? "all";
   const jobType = searchParams.get("jobType") ?? "all";
+  const country = searchParams.get("country") ?? "all";
   const page = parseInt(searchParams.get("page") ?? "1", 10);
   const applyWorkAuthFilter = searchParams.get("applyWorkAuthFilter") === "true";
+  const visaSponsorship = searchParams.get("visaSponsorship") === "true";
 
   if (!q.trim()) {
     return NextResponse.json({ jobs: [], interpretation: null, jsearchCount: 0, freeSourceCount: 0 });
@@ -91,10 +95,10 @@ export async function GET(req: NextRequest) {
 
     // Step 2: run all job sources in parallel
     const [jsearchRaw, freeRegistry] = await Promise.all([
-      searchJSearchJobs({ query: q, page, workMode }),
+      searchJSearchJobs({ query: q, page, workMode, country: country !== "all" ? country : undefined }),
       // Free sources are not paginated — only fetch on page 1
       page === 1
-        ? fetchFromFreeSourcesRegistry(q, parsedQuery)
+        ? fetchFromFreeSourcesRegistry(q, parsedQuery, country !== "all" ? country : undefined)
         : Promise.resolve({ jobs: [], sourceResults: [] }),
     ]);
 
@@ -123,6 +127,7 @@ export async function GET(req: NextRequest) {
       salaryMax: j.salaryMax,
       requiresUsAuth: j.requiresUsAuth,
       workAuthKeywords: j.workAuthKeywords,
+      sponsorsVisa: detectVisaSponsorship(j.description),
       isRedditPost: false,
       redditPostId: null,
       authorUsername: null,
@@ -144,12 +149,17 @@ export async function GET(req: NextRequest) {
     // JSearch first (most relevant), then free sources
     const combined = [...mappedJSearch, ...mappedFree];
 
-    const jobs = filterByWorkAuth(
+    let jobs = filterByWorkAuth(
       combined,
       user?.country ?? null,
       user?.workAuthType ?? null,
       applyWorkAuthFilter
     );
+
+    // Apply visa sponsorship filter if requested
+    if (visaSponsorship) {
+      jobs = jobs.filter((j) => j.sponsorsVisa);
+    }
 
     return NextResponse.json({
       jobs,

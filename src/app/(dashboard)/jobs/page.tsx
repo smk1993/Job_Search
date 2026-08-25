@@ -17,10 +17,25 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { Search, BriefcaseIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import type { JobWithAuthStatus } from "@/types/job";
 
+const COUNTRY_OPTIONS = [
+  { value: "all", label: "All Countries" },
+  { value: "United States", label: "United States" },
+  { value: "United Kingdom", label: "United Kingdom" },
+  { value: "Germany", label: "Germany" },
+  { value: "France", label: "France" },
+  { value: "Canada", label: "Canada" },
+  { value: "Australia", label: "Australia" },
+  { value: "India", label: "India" },
+  { value: "Netherlands", label: "Netherlands" },
+  { value: "Singapore", label: "Singapore" },
+];
+
 export default function JobsPage() {
   const [query, setQuery] = useState("");
   const [workMode, setWorkMode] = useState("all");
   const [jobType, setJobType] = useState("all");
+  const [country, setCountry] = useState("all");
+  const [visaSponsorship, setVisaSponsorship] = useState(false);
   const [applyWorkAuthFilter, setApplyWorkAuthFilter] = useState(true);
   const [page, setPage] = useState(1);
 
@@ -30,6 +45,8 @@ export default function JobsPage() {
     q: debouncedQuery,
     workMode,
     jobType,
+    country,
+    visaSponsorship,
     page,
     applyWorkAuthFilter,
     includeHN: false,
@@ -112,15 +129,41 @@ export default function JobsPage() {
             </Select>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            <Switch
-              id="work-auth-filter"
-              checked={applyWorkAuthFilter}
-              onCheckedChange={setApplyWorkAuthFilter}
-            />
-            <Label htmlFor="work-auth-filter" className="text-sm cursor-pointer whitespace-nowrap">
-              Hide jobs I can&apos;t work
-            </Label>
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-medium whitespace-nowrap">Country</Label>
+            <Select value={country} onValueChange={(v) => { setCountry(v); setPage(1); }}>
+              <SelectTrigger className="w-40 h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COUNTRY_OPTIONS.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-4 ml-auto">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="visa-sponsorship-filter"
+                checked={visaSponsorship}
+                onCheckedChange={(v) => { setVisaSponsorship(v); setPage(1); }}
+              />
+              <Label htmlFor="visa-sponsorship-filter" className="text-sm cursor-pointer whitespace-nowrap">
+                Visa sponsorship only
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="work-auth-filter"
+                checked={applyWorkAuthFilter}
+                onCheckedChange={setApplyWorkAuthFilter}
+              />
+              <Label htmlFor="work-auth-filter" className="text-sm cursor-pointer whitespace-nowrap">
+                Hide jobs I can&apos;t work
+              </Label>
+            </div>
           </div>
         </div>
 

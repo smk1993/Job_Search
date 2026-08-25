@@ -21,10 +21,15 @@ export async function GET() {
       githubUrl: true,
       phone: true,
       resumeUrl: true,
+      resumeText: true,
     },
   });
 
-  return NextResponse.json({ user });
+  return NextResponse.json({
+    user: user
+      ? { ...user, hasResume: !!user.resumeText, resumeText: undefined }
+      : null,
+  });
 }
 
 const schema = z.object({

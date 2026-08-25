@@ -7,6 +7,8 @@ interface JobSearchParams {
   q: string;
   workMode: string;
   jobType: string;
+  country: string;
+  visaSponsorship: boolean;
   page: number;
   applyWorkAuthFilter: boolean;
   includeHN: boolean;
@@ -22,6 +24,8 @@ export function useJobs(params: JobSearchParams) {
             q: params.q,
             workMode: params.workMode,
             jobType: params.jobType,
+            country: params.country,
+            visaSponsorship: params.visaSponsorship,
             page: params.page,
             applyWorkAuthFilter: params.applyWorkAuthFilter,
             includeHN: params.includeHN,

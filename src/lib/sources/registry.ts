@@ -1,6 +1,8 @@
 import { searchRemotive } from "./remotive.adapter";
 import { searchRemoteOK } from "./remoteok.adapter";
 import { searchArbeitnow } from "./arbeitnow.adapter";
+import { searchAdzuna } from "./adzuna.adapter";
+import { searchJobicy } from "./jobicy.adapter";
 import { deduplicateJobs, filterBySeniority } from "../dedup";
 import type { NormalizedJob, SearchResult } from "./types";
 import type { ParsedSearchQuery } from "../ai-query-parser";
@@ -14,10 +16,12 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   return Promise.race([promise, timeout]);
 }
 
-const FREE_SOURCES: { name: string; fn: (q: string) => Promise<NormalizedJob[]> }[] = [
+const FREE_SOURCES: { name: string; fn: (q: string, country?: string) => Promise<NormalizedJob[]> }[] = [
   { name: "REMOTIVE", fn: searchRemotive },
   { name: "REMOTEOK", fn: searchRemoteOK },
   { name: "ARBEITNOW", fn: searchArbeitnow },
+  { name: "ADZUNA", fn: searchAdzuna },
+  { name: "JOBICY", fn: searchJobicy },
 ];
 
 export interface RegistryResult {
@@ -31,12 +35,13 @@ export interface RegistryResult {
  */
 export async function fetchFromFreeSourcesRegistry(
   rawQuery: string,
-  parsed?: ParsedSearchQuery
+  parsed?: ParsedSearchQuery,
+  country?: string
 ): Promise<RegistryResult> {
   const settled = await Promise.allSettled(
     FREE_SOURCES.map(async ({ name, fn }) => {
       const t = Date.now();
-      const jobs = await withTimeout(fn(rawQuery), SOURCE_TIMEOUT_MS, name);
+      const jobs = await withTimeout(fn(rawQuery, country), SOURCE_TIMEOUT_MS, name);
       return { sourceName: name, jobs, durationMs: Date.now() - t } satisfies SearchResult;
     })
   );
@@ -66,6 +71,12 @@ export async function fetchFromFreeSourcesRegistry(
   // Apply salary filter from parsed query
   if (parsed?.salaryMin) {
     jobs = jobs.filter((j) => !j.salaryMin || j.salaryMin >= parsed.salaryMin!);
+  }
+
+  // Apply country filter — only include jobs whose location contains the country name
+  if (country && country !== "all") {
+    const lowerCountry = country.toLowerCase();
+    jobs = jobs.filter((j) => !j.location || j.location.toLowerCase().includes(lowerCountry));
   }
 
   return { jobs, sourceResults };

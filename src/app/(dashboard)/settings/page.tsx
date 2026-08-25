@@ -92,6 +92,7 @@ export default function SettingsPage() {
 
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
   const [resumeOriginalName, setResumeOriginalName] = useState<string | null>(null);
+  const [hasResume, setHasResume] = useState(false);
 
   const [extractedProfile, setExtractedProfile] = useState<ExtractedProfile | null>(null);
   const [appliedFromCV, setAppliedFromCV] = useState(false);
@@ -112,6 +113,7 @@ export default function SettingsPage() {
         setGithubUrl(u.githubUrl ?? "");
         setPhone(u.phone ?? "");
         setResumeUrl(u.resumeUrl ?? null);
+        setHasResume(u.hasResume ?? !!u.resumeUrl);
         setProfileImage(u.image ?? null);
       }
     });
@@ -211,6 +213,7 @@ export default function SettingsPage() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setResumeUrl(res.data.resumeUrl);
+      setHasResume(true);
       setResumeOriginalName(res.data.originalName ?? file.name);
 
       const extracted: ExtractedProfile = res.data.extractedProfile;
@@ -246,6 +249,7 @@ export default function SettingsPage() {
     try {
       await axios.delete("/api/settings/resume");
       setResumeUrl(null);
+      setHasResume(false);
       setResumeOriginalName(null);
       setExtractedProfile(null);
       setAppliedFromCV(false);
@@ -295,7 +299,7 @@ export default function SettingsPage() {
                 <CardDescription>PDF or DOCX, max 5 MB — we&apos;ll auto-fill your profile from it.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {resumeUrl ? (
+                {(resumeUrl || hasResume) ? (
                   <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -305,16 +309,18 @@ export default function SettingsPage() {
                         <p className="text-sm font-medium leading-none">
                           {resumeOriginalName ?? `Resume.${resumeExt.toLowerCase()}`}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">{resumeExt}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{resumeUrl ? resumeExt : "Stored in database"}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
-                        <a href={resumeUrl} target="_blank" rel="noopener noreferrer" download>
-                          <Download className="h-3.5 w-3.5 mr-1" />
-                          Download
-                        </a>
-                      </Button>
+                      {resumeUrl && (
+                        <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+                          <a href={resumeUrl} target="_blank" rel="noopener noreferrer" download>
+                            <Download className="h-3.5 w-3.5 mr-1" />
+                            Download
+                          </a>
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => fileInputRef.current?.click()} disabled={isUploadingResume}>
                         <Upload className="h-3.5 w-3.5 mr-1" />
                         Replace
@@ -342,11 +348,11 @@ export default function SettingsPage() {
                   </label>
                 )}
 
-                {resumeUrl && (
+                {(resumeUrl || hasResume) && (
                   <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} disabled={isUploadingResume} />
                 )}
 
-                {isUploadingResume && resumeUrl && (
+                {isUploadingResume && (resumeUrl || hasResume) && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Reading your CV…

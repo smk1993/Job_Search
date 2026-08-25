@@ -14,6 +14,7 @@ export interface JobWithAuthStatus {
   salaryMax: number | null;
   requiresUsAuth: boolean;
   workAuthKeywords: string[];
+  sponsorsVisa: boolean;
   isRedditPost: boolean;
   redditPostId: string | null;
   authorUsername: string | null;

@@ -124,12 +124,12 @@ export async function POST(req: NextRequest) {
   await writeFile(filePath, buffer);
 
   const resumeUrl = `/uploads/resumes/${filename}`;
-  await prisma.user.update({ where: { id: userId }, data: { resumeUrl } });
 
-  // Parse CV text and extract profile fields (runs in parallel with DB update above,
-  // but we await here to return the result in one response)
+  // Extract text first so we can save it to DB for persistence (Vercel wipes public/ on redeploy)
   const resumeText = await extractTextFromBuffer(buffer, file.type, file.name);
   const extractedProfile = await parseResumeWithAI(resumeText);
+
+  await prisma.user.update({ where: { id: userId }, data: { resumeUrl, resumeText: resumeText || null } });
 
   return NextResponse.json({ resumeUrl, originalName: file.name, extractedProfile });
 }
@@ -147,7 +147,7 @@ export async function DELETE() {
     } catch {
       // File may already be gone — that's fine
     }
-    await prisma.user.update({ where: { id: userId }, data: { resumeUrl: null } });
+    await prisma.user.update({ where: { id: userId }, data: { resumeUrl: null, resumeText: null } });
   }
 
   return NextResponse.json({ success: true });

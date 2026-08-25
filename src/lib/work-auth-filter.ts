@@ -41,6 +41,28 @@ export function detectUsAuthRequired(description: string): {
   return { requiresUsAuth: matchedKeywords.length > 0, matchedKeywords };
 }
 
+// Patterns that indicate a job OFFERS visa sponsorship
+const VISA_SPONSORSHIP_PATTERNS: RegExp[] = [
+  /visa\s+sponsor(?:ship)?(?:\s+(?:available|provided|offered|possible|considered))?/i,
+  /will\s+sponsor\s+(?:visa|work\s+(?:permit|authorization))/i,
+  /sponsorship\s+(?:is\s+)?(?:available|provided|offered)/i,
+  /(?:work\s+)?permit\s+provided/i,
+  /relocation\s+(?:assistance|package|support)\s+(?:provided|available|offered)/i,
+  /\btier\s*[–-]?\s*2\s+sponsor(?:ed|ship)?\b/i,
+  /\bh[\s-]?1[\s-]?b\s+(?:sponsor(?:ship)?|transfer|filing)/i,
+  /\bh1b\s+(?:sponsor(?:ship)?|transfer|filing)/i,
+  /green\s+card\s+sponsor(?:ship)?/i,
+  /eu\s+blue\s+card/i,
+  /skilled\s+worker\s+visa/i,
+  /work\s+authorization\s+(?:sponsor(?:ship)?|support(?:ed)?)/i,
+  /open\s+to\s+(?:sponsoring|visa\s+sponsor)/i,
+  /eligible\s+for\s+(?:visa\s+)?sponsorship/i,
+];
+
+export function detectVisaSponsorship(description: string): boolean {
+  return VISA_SPONSORSHIP_PATTERNS.some((pattern) => pattern.test(description));
+}
+
 const CAN_WORK_IN_US = new Set<WorkAuthorizationType>([
   WorkAuthorizationType.CITIZEN,
   WorkAuthorizationType.PERMANENT_RESIDENT,
