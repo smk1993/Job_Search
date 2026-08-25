@@ -119,16 +119,23 @@ export async function POST(req: NextRequest) {
   const filename = `${userId}.${ext}`;
   const filePath = path.join(RESUME_DIR, filename);
 
-  await mkdir(RESUME_DIR, { recursive: true });
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(filePath, buffer);
 
-  const resumeUrl = `/uploads/resumes/${filename}`;
+  // Try to write file to disk for local serving. On Vercel, public/ is read-only at
+  // runtime so this will throw — we catch it and fall back to DB-only storage.
+  let resumeUrl: string | null = null;
+  try {
+    await mkdir(RESUME_DIR, { recursive: true });
+    await writeFile(filePath, buffer);
+    resumeUrl = `/uploads/resumes/${filename}`;
+  } catch {
+    // Read-only filesystem (Vercel) — resume text will be stored in the DB instead
+  }
 
-  // Always save the URL first so the upload is never lost even if text extraction fails
+  // Persist whatever URL we have (may be null on Vercel)
   await prisma.user.update({ where: { id: userId }, data: { resumeUrl } });
 
-  // Extract and persist resume text for DB-backed persistence (Vercel wipes public/ on redeploy)
+  // Extract and persist resume text — buffer is still in memory regardless of file write result
   let resumeText: string | null = null;
   let extractedProfile: ExtractedProfile = { name: null, phone: null, email: null, linkedinUrl: null, githubUrl: null, location: null, summary: null };
   try {
@@ -139,7 +146,7 @@ export async function POST(req: NextRequest) {
       await prisma.user.update({ where: { id: userId }, data: { resumeText } });
     }
   } catch {
-    // Text extraction failure is non-fatal — resume URL is already saved
+    // Text extraction failure is non-fatal — URL/text state already handled above
   }
 
   return NextResponse.json({ resumeUrl, originalName: file.name, extractedProfile });
