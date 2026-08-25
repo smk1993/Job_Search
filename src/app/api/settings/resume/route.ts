@@ -141,12 +141,23 @@ export async function POST(req: NextRequest) {
   try {
     const text = await extractTextFromBuffer(buffer, file.type, file.name);
     resumeText = text || null;
-    extractedProfile = await parseResumeWithAI(text);
+  } catch {
+    // Text extraction failure is non-fatal
+  }
+
+  // Persist resume text immediately so it survives page navigations,
+  // regardless of whether AI parsing succeeds below.
+  if (resumeText) {
+    await prisma.user.update({ where: { id: userId }, data: { resumeText } });
+  }
+
+  // AI parsing is a separate step — failures here must not prevent text persistence
+  try {
     if (resumeText) {
-      await prisma.user.update({ where: { id: userId }, data: { resumeText } });
+      extractedProfile = await parseResumeWithAI(resumeText);
     }
   } catch {
-    // Text extraction failure is non-fatal — URL/text state already handled above
+    // AI parsing failure is non-fatal — resume text is already saved above
   }
 
   return NextResponse.json({ resumeUrl, originalName: file.name, extractedProfile });
